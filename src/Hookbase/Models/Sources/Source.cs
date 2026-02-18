@@ -56,6 +56,9 @@ public record Source
     [JsonPropertyName("rateLimitPerMinute")]
     public int? RateLimitPerMinute { get; init; }
 
+    [JsonConverter(typeof(BooleanConverter))]
+    public bool TransientMode { get; init; }
+
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
 }
@@ -98,6 +101,8 @@ public record CreateSourceRequest
 
     [JsonPropertyName("rateLimitPerMinute")]
     public int? RateLimitPerMinute { get; init; }
+
+    public bool? TransientMode { get; init; }
 }
 
 /// <summary>
@@ -129,6 +134,8 @@ public record UpdateSourceRequest
 
     [JsonPropertyName("rateLimitPerMinute")]
     public int? RateLimitPerMinute { get; init; }
+
+    public bool? TransientMode { get; init; }
 }
 
 /// <summary>
