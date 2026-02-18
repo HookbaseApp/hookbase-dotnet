@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12.0</LangVersion>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>Hookbase</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Hookbase</Authors>
+    <Company>Hookbase</Company>
+    <Description>Official .NET SDK for Hookbase - Webhook relay platform for receiving, transforming, and routing webhooks to multiple destinations</Description>
+    <PackageTags>webhooks;api;sdk;hookbase;relay;routing</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/hookbase/hookbase-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://hookbase.app</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>
