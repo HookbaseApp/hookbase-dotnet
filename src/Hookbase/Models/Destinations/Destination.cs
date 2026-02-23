@@ -1,7 +1,78 @@
 using Hookbase.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Models.Destinations;
+
+/// <summary>
+/// Type of destination - HTTP endpoint or warehouse storage.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum DestinationType
+{
+    Http,
+    S3,
+    R2,
+    Gcs,
+    AzureBlob
+}
+
+/// <summary>
+/// S3 warehouse destination configuration.
+/// </summary>
+public record S3Config(
+    string Bucket,
+    string Region,
+    string AccessKeyId,
+    string SecretAccessKey,
+    string? Prefix = null,
+    string? FileFormat = null,
+    string? PartitionBy = null
+);
+
+/// <summary>
+/// Cloudflare R2 warehouse destination configuration.
+/// </summary>
+public record R2Config(
+    string Bucket,
+    string? Prefix = null,
+    string? FileFormat = null,
+    string? PartitionBy = null
+);
+
+/// <summary>
+/// Google Cloud Storage warehouse destination configuration.
+/// </summary>
+public record GCSConfig(
+    string Bucket,
+    string ProjectId,
+    string ServiceAccountKey,
+    string? Prefix = null,
+    string? FileFormat = null,
+    string? PartitionBy = null
+);
+
+/// <summary>
+/// Azure Blob Storage warehouse destination configuration.
+/// </summary>
+public record AzureBlobConfig(
+    string AccountName,
+    string AccountKey,
+    string ContainerName,
+    string? Prefix = null,
+    string? FileFormat = null,
+    string? PartitionBy = null
+);
+
+/// <summary>
+/// Field mapping for warehouse destinations.
+/// </summary>
+public record FieldMapping(
+    string Source,
+    string Target,
+    string Type,
+    string? Default = null
+);
 
 /// <summary>
 /// Webhook delivery destination.
@@ -12,6 +83,7 @@ public record Destination
     public string? OrganizationId { get; init; }
     public string? Name { get; init; }
     public string? Slug { get; init; }
+    public DestinationType? Type { get; init; }
     public string? Url { get; init; }
     public string? Method { get; init; }
     [JsonConverter(typeof(JsonStringStringDictionaryConverter))]
@@ -30,6 +102,8 @@ public record Destination
 
     [JsonConverter(typeof(JsonStringDictionaryConverter))]
     public Dictionary<string, object>? MockConfig { get; init; }
+    public JsonElement? Config { get; init; }
+    public List<FieldMapping>? FieldMapping { get; init; }
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
 
@@ -46,13 +120,16 @@ public record CreateDestinationRequest
 {
     public required string Name { get; init; }
     public required string Slug { get; init; }
-    public required string Url { get; init; }
+    public DestinationType? Type { get; init; }
+    public string? Url { get; init; }
     public string? Method { get; init; }
     public Dictionary<string, string>? Headers { get; init; }
     public string? AuthType { get; init; }
     public Dictionary<string, object>? AuthConfig { get; init; }
     public int? TimeoutMs { get; init; }
     public int? RateLimitPerMinute { get; init; }
+    public object? Config { get; init; }
+    public List<FieldMapping>? FieldMapping { get; init; }
 }
 
 /// <summary>
@@ -69,6 +146,8 @@ public record UpdateDestinationRequest
     public int? TimeoutMs { get; init; }
     public int? RateLimitPerMinute { get; init; }
     public bool? IsActive { get; init; }
+    public object? Config { get; init; }
+    public List<FieldMapping>? FieldMapping { get; init; }
 }
 
 /// <summary>
