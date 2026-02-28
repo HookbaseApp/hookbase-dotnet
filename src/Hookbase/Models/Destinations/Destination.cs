@@ -98,6 +98,9 @@ public record Destination
     public bool IsActive { get; init; } = true;
 
     [JsonConverter(typeof(BooleanConverter))]
+    public bool UseStaticIp { get; init; } = true;
+
+    [JsonConverter(typeof(BooleanConverter))]
     public bool MockEnabled { get; init; }
 
     [JsonConverter(typeof(JsonStringDictionaryConverter))]
@@ -130,6 +133,7 @@ public record CreateDestinationRequest
     public int? RateLimitPerMinute { get; init; }
     public object? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
+    public bool? UseStaticIp { get; init; }
 }
 
 /// <summary>
@@ -148,6 +152,7 @@ public record UpdateDestinationRequest
     public bool? IsActive { get; init; }
     public object? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
+    public bool? UseStaticIp { get; init; }
 }
 
 /// <summary>

@@ -47,6 +47,9 @@ public record Endpoint
     public string? LastSuccessAt { get; init; }
     public string? LastFailureAt { get; init; }
     public int? LastResponseStatus { get; init; }
+    [JsonConverter(typeof(BooleanConverter))]
+    public bool UseStaticIp { get; init; } = true;
+
     public int TotalMessages { get; init; }
     public int TotalSuccesses { get; init; }
     public int TotalFailures { get; init; }
@@ -76,6 +79,7 @@ public record CreateEndpointRequest
     public int? TimeoutSeconds { get; init; }
     public List<object>? Headers { get; init; }
     public Dictionary<string, object>? Metadata { get; init; }
+    public bool? UseStaticIp { get; init; }
 }
 
 /// <summary>
@@ -92,6 +96,7 @@ public record UpdateEndpointRequest
     public int? TimeoutSeconds { get; init; }
     public List<object>? Headers { get; init; }
     public Dictionary<string, object>? Metadata { get; init; }
+    public bool? UseStaticIp { get; init; }
 }
 
 /// <summary>
