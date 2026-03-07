@@ -107,6 +107,8 @@ public record Destination
     public Dictionary<string, object>? MockConfig { get; init; }
     public JsonElement? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
+    public int? BatchSize { get; init; }
+    public int? BatchWindowSeconds { get; init; }
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
 
@@ -134,6 +136,8 @@ public record CreateDestinationRequest
     public object? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
     public bool? UseStaticIp { get; init; }
+    public int? BatchSize { get; init; }
+    public int? BatchWindowSeconds { get; init; }
 }
 
 /// <summary>
@@ -153,6 +157,8 @@ public record UpdateDestinationRequest
     public object? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
     public bool? UseStaticIp { get; init; }
+    public int? BatchSize { get; init; }
+    public int? BatchWindowSeconds { get; init; }
 }
 
 /// <summary>
