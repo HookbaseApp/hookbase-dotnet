@@ -408,14 +408,14 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Links
 
-- [Hookbase Documentation](https://docs.hookbase.app)
-- [API Reference](https://docs.hookbase.app/api-reference)
+- [Hookbase Documentation](https://www.hookbase.app/docs)
+- [API Reference](https://www.hookbase.app/docs/receive/api)
 - [GitHub Repository](https://github.com/hookbase/hookbase-dotnet)
 - [NuGet Package](https://www.nuget.org/packages/Hookbase)
 - [Report Issues](https://github.com/hookbase/hookbase-dotnet/issues)
 
 ## Support
 
-- Documentation: https://docs.hookbase.app
+- Documentation: https://www.hookbase.app/docs
 - Email: support@hookbase.app
 - Twitter: [@hookbaseapp](https://twitter.com/hookbaseapp)
