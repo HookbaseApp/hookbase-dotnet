@@ -59,6 +59,11 @@ public record Source
     [JsonConverter(typeof(BooleanConverter))]
     public bool TransientMode { get; init; }
 
+    /// <summary>
+    /// HTTP verbs this source's ingest endpoint accepts. An empty list means any method.
+    /// </summary>
+    public List<string> AllowedMethods { get; init; } = new();
+
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
 }
@@ -103,6 +108,11 @@ public record CreateSourceRequest
     public int? RateLimitPerMinute { get; init; }
 
     public bool? TransientMode { get; init; }
+
+    /// <summary>
+    /// Restrict the ingest endpoint to these HTTP verbs. Null or empty accepts any method.
+    /// </summary>
+    public List<string>? AllowedMethods { get; init; }
 }
 
 /// <summary>
@@ -136,6 +146,11 @@ public record UpdateSourceRequest
     public int? RateLimitPerMinute { get; init; }
 
     public bool? TransientMode { get; init; }
+
+    /// <summary>
+    /// Restrict the ingest endpoint to these HTTP verbs. Pass an empty list to accept any method again.
+    /// </summary>
+    public List<string>? AllowedMethods { get; init; }
 }
 
 /// <summary>
