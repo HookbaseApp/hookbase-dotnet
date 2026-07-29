@@ -22,6 +22,9 @@ public record CronJob
     [JsonConverter(typeof(BooleanConverter))]
     public bool IsActive { get; init; } = true;
 
+    [JsonConverter(typeof(BooleanConverter))]
+    public bool UseStaticIp { get; init; } = true;
+
     public string? GroupId { get; init; }
     public string? LastRunAt { get; init; }
     public string? NextRunAt { get; init; }
@@ -44,6 +47,7 @@ public record CreateCronJobRequest
     public required string CronExpression { get; init; }
     public string? Timezone { get; init; }
     public bool? IsActive { get; init; }
+    public bool? UseStaticIp { get; init; }
     public string? GroupId { get; init; }
 }
 
@@ -61,6 +65,7 @@ public record UpdateCronJobRequest
     public string? CronExpression { get; init; }
     public string? Timezone { get; init; }
     public bool? IsActive { get; init; }
+    public bool? UseStaticIp { get; init; }
     public string? GroupId { get; init; }
 }
 
