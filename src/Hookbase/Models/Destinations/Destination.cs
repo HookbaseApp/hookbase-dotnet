@@ -75,6 +75,26 @@ public record FieldMapping(
 );
 
 /// <summary>
+/// Throttling configuration for a destination. Replaces the legacy flat
+/// <c>RateLimitPerMinute</c> field.
+/// </summary>
+/// <remarks>
+/// <c>RateLimit</c> and <c>RateUnit</c> are required when <see cref="Mode"/> is
+/// <c>"rate"</c>; <c>MaxConcurrency</c> is required when <see cref="Mode"/> is
+/// <c>"concurrency"</c>. <c>QueueLimit</c> is optional in both modes.
+/// </remarks>
+public record Throttle
+{
+    /// <summary>One of "off", "rate", or "concurrency".</summary>
+    public string Mode { get; init; } = "off";
+    public int? RateLimit { get; init; }
+    /// <summary>One of "second", "minute", or "hour".</summary>
+    public string? RateUnit { get; init; }
+    public int? MaxConcurrency { get; init; }
+    public int? QueueLimit { get; init; }
+}
+
+/// <summary>
 /// Webhook delivery destination.
 /// </summary>
 public record Destination
@@ -92,7 +112,7 @@ public record Destination
     [JsonConverter(typeof(JsonStringDictionaryConverter))]
     public Dictionary<string, object>? AuthConfig { get; init; }
     public int TimeoutMs { get; init; } = 30000;
-    public int? RateLimitPerMinute { get; init; }
+    public Throttle? Throttle { get; init; }
 
     [JsonConverter(typeof(BooleanConverter))]
     public bool IsActive { get; init; } = true;
@@ -132,7 +152,7 @@ public record CreateDestinationRequest
     public string? AuthType { get; init; }
     public Dictionary<string, object>? AuthConfig { get; init; }
     public int? TimeoutMs { get; init; }
-    public int? RateLimitPerMinute { get; init; }
+    public Throttle? Throttle { get; init; }
     public object? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
     public bool? UseStaticIp { get; init; }
@@ -152,7 +172,7 @@ public record UpdateDestinationRequest
     public string? AuthType { get; init; }
     public Dictionary<string, object>? AuthConfig { get; init; }
     public int? TimeoutMs { get; init; }
-    public int? RateLimitPerMinute { get; init; }
+    public Throttle? Throttle { get; init; }
     public bool? IsActive { get; init; }
     public object? Config { get; init; }
     public List<FieldMapping>? FieldMapping { get; init; }
