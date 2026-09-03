@@ -104,6 +104,20 @@ public class CronJobsResource : BaseResource
     }
 
     /// <summary>
+    /// Manually trigger a cron job to run immediately.
+    /// </summary>
+    public async Task<CronJobExecution> TriggerAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await ApiClient.RequestAsync<TriggerCronJobResponse>(
+            HttpMethod.Post,
+            $"/api/cron/{Uri.EscapeDataString(id)}/trigger",
+            cancellationToken: cancellationToken
+        );
+
+        return response.Execution;
+    }
+
+    /// <summary>
     /// List cron groups.
     /// </summary>
     public async Task<List<CronGroup>> ListGroupsAsync(CancellationToken cancellationToken = default)
@@ -144,6 +158,11 @@ public class CronJobsResource : BaseResource
     private record GetCronJobResponse
     {
         public required CronJob CronJob { get; init; }
+    }
+
+    private record TriggerCronJobResponse
+    {
+        public required CronJobExecution Execution { get; init; }
     }
 
     private record ListCronGroupsResponse

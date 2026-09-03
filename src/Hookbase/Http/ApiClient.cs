@@ -174,13 +174,16 @@ public class ApiClient : IApiClient, IDisposable
                         kvp => (object)kvp.Value.ToString()!
                     );
 
-                    // Extract field errors for validation exceptions
-                    if (errorResponse.TryGetValue("errors", out var errorsElement))
+                    // Extract field errors for validation exceptions (Zod's .flatten() shape:
+                    // { error, code?, details: { formErrors: string[], fieldErrors: Record<string, string[]> } })
+                    if (errorResponse.TryGetValue("details", out var detailsElement) &&
+                        detailsElement.ValueKind == JsonValueKind.Object &&
+                        detailsElement.TryGetProperty("fieldErrors", out var fieldErrorsElement))
                     {
                         try
                         {
                             fieldErrors = JsonSerializer.Deserialize<Dictionary<string, string[]>>(
-                                errorsElement.GetRawText(),
+                                fieldErrorsElement.GetRawText(),
                                 JsonOptions
                             );
                         }
