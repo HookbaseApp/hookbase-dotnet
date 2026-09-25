@@ -45,19 +45,23 @@ try
     Console.WriteLine($"Ingest URL: {newSource.IngestUrl}");
     Console.WriteLine();
 
+    // Source.Id is nullable on the model; the API always sets it on a created source.
+    var sourceId = newSource.Id!;
+
     // Get the source we just created
-    Console.WriteLine($"Fetching source {newSource.Id}...");
-    var fetchedSource = await client.Sources.GetAsync(newSource.Id);
+    Console.WriteLine($"Fetching source {sourceId}...");
+    var fetchedSource = await client.Sources.GetAsync(sourceId);
     Console.WriteLine($"Fetched: {fetchedSource.Name}");
     Console.WriteLine();
 
-    // Update the source
+    // Update the source. UpdateAsync returns no body, so re-fetch to see the result.
     Console.WriteLine("Updating source...");
-    var updatedSource = await client.Sources.UpdateAsync(newSource.Id, new UpdateSourceRequest
+    await client.Sources.UpdateAsync(sourceId, new UpdateSourceRequest
     {
         Description = "Updated description",
         IsActive = true
     });
+    var updatedSource = await client.Sources.GetAsync(sourceId);
     Console.WriteLine($"Updated description: {updatedSource.Description}");
     Console.WriteLine();
 
@@ -78,8 +82,8 @@ try
     Console.WriteLine();
 
     // Clean up - delete the example source
-    Console.WriteLine($"Deleting example source {newSource.Id}...");
-    await client.Sources.DeleteAsync(newSource.Id);
+    Console.WriteLine($"Deleting example source {sourceId}...");
+    await client.Sources.DeleteAsync(sourceId);
     Console.WriteLine("Deleted successfully");
     Console.WriteLine();
 
@@ -95,7 +99,7 @@ try
 
     foreach (var app in apps.Data)
     {
-        Console.WriteLine($"  - {app.Name} ({app.Uid})");
+        Console.WriteLine($"  - {app.Name} ({app.ExternalId})");
     }
 
     if (apps.HasMore)
@@ -109,7 +113,7 @@ try
     var newApp = await client.Applications.CreateAsync(new CreateApplicationRequest
     {
         Name = "Example Customer App",
-        Uid = $"customer_{Guid.NewGuid():N}",
+        ExternalId = $"customer_{Guid.NewGuid():N}",
         Metadata = new Dictionary<string, object>
         {
             ["plan"] = "trial",
@@ -119,15 +123,15 @@ try
     });
 
     Console.WriteLine($"Created application: {newApp.Id}");
-    Console.WriteLine($"UID: {newApp.Uid}");
+    Console.WriteLine($"External ID: {newApp.ExternalId}");
     Console.WriteLine($"Metadata: {System.Text.Json.JsonSerializer.Serialize(newApp.Metadata)}");
     Console.WriteLine();
 
     // Get or create (idempotent operation)
-    Console.WriteLine("Testing get-or-create with existing UID...");
+    Console.WriteLine("Testing get-or-create with existing external ID...");
     var appOrCreate = await client.Applications.GetOrCreateAsync(new GetOrCreateApplicationRequest
     {
-        Uid = newApp.Uid,
+        ExternalId = newApp.ExternalId!,
         Name = "Example Customer App",
         Metadata = new Dictionary<string, object> { ["updated"] = "true" }
     });

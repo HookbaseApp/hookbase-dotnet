@@ -61,8 +61,8 @@ var newSource = await client.Sources.CreateAsync(new CreateSourceRequest
 {
     Name = "GitHub Webhooks",
     Slug = "github-prod",
-    Provider = SourceProvider.Github,
-    VerifySignature = true
+    Provider = SourceProvider.GitHub,
+    RejectInvalidSignatures = true
 });
 
 Console.WriteLine($"Created source: {newSource.Id}");
@@ -71,16 +71,16 @@ Console.WriteLine($"Signing secret: {newSource.SigningSecret}");
 // Get a source
 var source = await client.Sources.GetAsync("source_123");
 
-// Update a source
-var updated = await client.Sources.UpdateAsync("source_123", new UpdateSourceRequest
+// Update a source. UpdateAsync returns no body; re-fetch if you need the result.
+await client.Sources.UpdateAsync("source_123", new UpdateSourceRequest
 {
     Name = "GitHub Production",
     IsActive = true
 });
 
 // Rotate signing secret
-var rotated = await client.Sources.RotateSecretAsync("source_123");
-Console.WriteLine($"New secret: {rotated.SigningSecret}");
+var rotatedSecret = await client.Sources.RotateSecretAsync("source_123");
+Console.WriteLine($"New secret: {rotatedSecret}");
 
 // Delete a source
 await client.Sources.DeleteAsync("source_123");
@@ -111,7 +111,7 @@ var apps = await client.Applications.ListAsync(limit: 50);
 
 foreach (var app in apps.Data)
 {
-    Console.WriteLine($"{app.Name} - {app.Uid}");
+    Console.WriteLine($"{app.Name} - {app.ExternalId}");
 }
 
 if (apps.HasMore)
@@ -123,7 +123,7 @@ if (apps.HasMore)
 var app = await client.Applications.CreateAsync(new CreateApplicationRequest
 {
     Name = "Customer Portal",
-    Uid = "customer_12345",
+    ExternalId = "customer_12345",
     Metadata = new Dictionary<string, object>
     {
         ["plan"] = "pro",
@@ -134,7 +134,7 @@ var app = await client.Applications.CreateAsync(new CreateApplicationRequest
 // Get or create (idempotent)
 var appOrCreate = await client.Applications.GetOrCreateAsync(new GetOrCreateApplicationRequest
 {
-    Uid = "customer_12345",
+    ExternalId = "customer_12345",
     Name = "Customer Portal",
     Metadata = new Dictionary<string, object> { ["created"] = "2024" }
 });
