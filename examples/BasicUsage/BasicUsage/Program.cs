@@ -36,7 +36,7 @@ try
         Name = "Example Stripe Webhooks",
         Slug = "stripe-example",
         Provider = SourceProvider.Stripe,
-        VerifySignature = true,
+        RejectInvalidSignatures = true,
         Description = "Example webhook source for testing"
     });
 

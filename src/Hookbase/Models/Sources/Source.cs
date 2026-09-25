@@ -82,9 +82,22 @@ public record SourceWithSecret : Source
 public record CreateSourceRequest
 {
     public required string Name { get; init; }
-    public string? Slug { get; init; }
+
+    /// <summary>
+    /// Required: the slug forms the ingest URL, /ingest/&lt;org&gt;/&lt;slug&gt;, and cannot be
+    /// changed after the source is created. POST /api/sources rejects a body without one.
+    /// </summary>
+    public required string Slug { get; init; }
+
     public string? Description { get; init; }
     public string? Provider { get; init; }
+
+    /// <summary>
+    /// Supply your own secret to match what the provider is already configured with. Omit it and
+    /// the API generates one, returned once on the created source.
+    /// </summary>
+    [JsonPropertyName("signingSecret")]
+    public string? SigningSecret { get; init; }
 
     [JsonPropertyName("rejectInvalidSignatures")]
     public bool? RejectInvalidSignatures { get; init; }
@@ -122,7 +135,11 @@ public record UpdateSourceRequest
 {
     public string? Name { get; init; }
     public string? Description { get; init; }
+    public string? Provider { get; init; }
     public bool? IsActive { get; init; }
+
+    [JsonPropertyName("signingSecret")]
+    public string? SigningSecret { get; init; }
 
     [JsonPropertyName("rejectInvalidSignatures")]
     public bool? RejectInvalidSignatures { get; init; }
