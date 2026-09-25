@@ -32,14 +32,20 @@ namespace Hookbase.Models.Common;
 /// </remarks>
 public static class SourceProvider
 {
+    public const string Airtable = "airtable";
+    public const string Asana = "asana";
     public const string Bitbucket = "bitbucket";
+    public const string Calendly = "calendly";
     public const string Custom = "custom";
     public const string Generic = "generic";
     public const string GitHub = "github";
     public const string GitLab = "gitlab";
     public const string Heroku = "heroku";
+    public const string Intercom = "intercom";
     public const string LemonSqueezy = "lemonsqueezy";
+    public const string Notion = "notion";
     public const string Paddle = "paddle";
+    public const string Razorpay = "razorpay";
     public const string Sentry = "sentry";
     public const string Shopify = "shopify";
     public const string Slack = "slack";
@@ -51,6 +57,7 @@ public static class SourceProvider
 
     public const string Twilio = "twilio";
     public const string Typeform = "typeform";
+    public const string WorkOS = "workos";
     public const string Zoom = "zoom";
 }
 
