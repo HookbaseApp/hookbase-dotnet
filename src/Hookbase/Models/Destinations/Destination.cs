@@ -226,22 +226,25 @@ public record CreateDestinationRequest
             return null;
         }
 
-        var decomposed = name.Normalize(NormalizationForm.FormKD);
+        var decomposed = PreFold(name).Normalize(NormalizationForm.FormKD);
         var builder = new StringBuilder(decomposed.Length);
 
-        foreach (var character in decomposed)
+        // Runes, not chars: a mark outside the BMP reaches a char loop as two surrogate halves,
+        // neither of which reads as a mark, so it would survive the strip below and become a
+        // separator while every other SDK dropped it.
+        foreach (var rune in decomposed.EnumerateRunes())
         {
             // Drop the combining marks the decomposition left behind, so the base letter survives
             // as a letter instead of becoming a separator.
-            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            if (IsSlugMark(rune))
             {
                 continue;
             }
 
-            var lowered = char.ToLowerInvariant(character);
-            if (lowered is >= 'a' and <= 'z' or >= '0' and <= '9')
+            var lowered = Rune.ToLowerInvariant(rune);
+            if (lowered.Value is >= 'a' and <= 'z' or >= '0' and <= '9')
             {
-                builder.Append(lowered);
+                builder.Append((char)lowered.Value);
             }
             else if (builder.Length > 0 && builder[builder.Length - 1] != '-')
             {
@@ -257,6 +260,133 @@ public record CreateDestinationRequest
 
         return slug.Length == 0 ? null : slug;
     }
+
+    /// <summary>
+    /// Whether <paramref name="rune"/> is a combining mark the slug fold drops.
+    /// </summary>
+    /// <remarks>
+    /// Which characters are non-spacing marks is a function of the Unicode version the *runtime*
+    /// ships, and the four SDKs' runtimes do not agree: .NET 8's tables are Unicode 15.1 while the
+    /// reference implementation's <c>\p{Mn}</c> (V8) is a version ahead. Reading the category alone
+    /// therefore makes the same name slug differently depending on which SDK created the
+    /// destination, which is the thing this derivation exists to prevent. <see cref="SlugMarkAdditions"/>
+    /// and <see cref="SlugMarkReclassified"/> close that gap, and both self-heal: once the runtime's
+    /// own tables agree, they are redundant but harmless.
+    /// </remarks>
+    private static bool IsSlugMark(Rune rune)
+    {
+        // Mn in Unicode 15.0 and Mc - a *spacing* mark - from 15.1, so the reference does not strip
+        // it and neither may this SDK: it has to separate, the way any other non-alphanumeric does.
+        if (rune.Value == SlugMarkReclassified)
+        {
+            return false;
+        }
+
+        if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.NonSpacingMark)
+        {
+            return true;
+        }
+
+        foreach (var (low, high) in SlugMarkAdditions)
+        {
+            if (rune.Value >= low && rune.Value <= high)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Characters the reference runtime folds to ASCII that this runtime's Unicode tables predate,
+    /// applied before normalizing so NFKD's answer is the same on both. Every mapping is the
+    /// reference's own NFKD output; a runtime that knows these characters decomposes them
+    /// identically, so this stays a no-op rather than a divergence of its own.
+    /// </summary>
+    /// <remarks>
+    /// Rebuilding the string unconditionally also sanitizes it: <see cref="string.Normalize(NormalizationForm)"/>
+    /// throws <see cref="ArgumentException"/> on an unpaired surrogate, where the reference runtime
+    /// passes one through to become a separator. <see cref="StringRuneEnumerator"/> yields U+FFFD for
+    /// an unpaired surrogate, which separates for the same reason, so a malformed name derives a slug
+    /// here instead of throwing an exception this SDK does not document.
+    /// </remarks>
+    private static string PreFold(string name)
+    {
+        var builder = new StringBuilder(name.Length);
+        foreach (var rune in name.EnumerateRunes())
+        {
+            // U+A7F1 (Latin Extended-D) decomposes to "S"; U+1CCD6-U+1CCF9 are 36 contiguous
+            // additions in Symbols for Legacy Computing Supplement decomposing to A-Z then 0-9.
+            if (rune.Value == 0xA7F1)
+            {
+                builder.Append('S');
+            }
+            else if (rune.Value is >= 0x1CCD6 and <= 0x1CCF9)
+            {
+                builder.Append(SlugPreFoldAlphabet[rune.Value - 0x1CCD6]);
+            }
+            else if (IsNormalizeHostile(rune))
+            {
+                builder.Append(Rune.ReplacementChar);
+            }
+            else
+            {
+                builder.Append(rune);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Whether <see cref="string.Normalize(NormalizationForm)"/> refuses this character: the 66
+    /// Unicode noncharacters. The reference runtime normalizes them without complaint and they end
+    /// up separating, like any other non-alphanumeric, so <see cref="PreFold"/> swaps in U+FFFD -
+    /// which also separates - rather than letting a name containing one throw
+    /// <see cref="ArgumentException"/> out of a slug derivation. Reading
+    /// <see cref="CreateDestinationRequest.Slug"/> derives, so that exception could surface from a
+    /// property getter.
+    /// </summary>
+    private static bool IsNormalizeHostile(Rune rune)
+        => (rune.Value & 0xFFFE) == 0xFFFE || rune.Value is >= 0xFDD0 and <= 0xFDEF;
+
+    /// <summary>
+    /// 75 code points in 21 ranges: marks the reference runtime strips that Unicode 15.0 does not
+    /// know. The same table <c>slugMarkAdditions</c> carries in <c>go-sdk/slug_fold.go</c> and
+    /// <c>_SLUG_MARK_ADDITIONS</c> in <c>python-sdk/src/hookbase/models/_wire.py</c>. Change one and
+    /// you change all three.
+    /// </summary>
+    private static readonly (int Low, int High)[] SlugMarkAdditions =
+    [
+        (0x0897, 0x0897),
+        (0x1ACF, 0x1ADD),
+        (0x1AE0, 0x1AEB),
+        (0x10D69, 0x10D6D),
+        (0x10EFA, 0x10EFC),
+        (0x113BB, 0x113C0),
+        (0x113CE, 0x113CE),
+        (0x113D0, 0x113D0),
+        (0x113D2, 0x113D2),
+        (0x113E1, 0x113E2),
+        (0x11B60, 0x11B60),
+        (0x11B62, 0x11B64),
+        (0x11B66, 0x11B66),
+        (0x11F5A, 0x11F5A),
+        (0x1611E, 0x16129),
+        (0x1612D, 0x1612F),
+        (0x1E5EE, 0x1E5EF),
+        (0x1E6E3, 0x1E6E3),
+        (0x1E6E6, 0x1E6E6),
+        (0x1E6EE, 0x1E6EF),
+        (0x1E6F5, 0x1E6F5),
+    ];
+
+    /// <summary>AHOM CONSONANT SIGN MEDIAL RA: Mn in Unicode 15.0, Mc since 15.1.</summary>
+    private const int SlugMarkReclassified = 0x1171E;
+
+    /// <summary>What <see cref="PreFold"/>'s second range decomposes to, in order.</summary>
+    private const string SlugPreFoldAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
     /// <summary>Max slug length, as <c>createDestinationSchema</c> enforces it.</summary>
     private const int SlugMaxLength = 50;

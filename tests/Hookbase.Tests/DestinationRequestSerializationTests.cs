@@ -177,6 +177,7 @@ public class DestinationRequestSerializationTests
     /// <list type="bullet">
     /// <item><description><c>node-sdk/src/__tests__/wire-format.test.ts</c> (cross-SDK contract block)</description></item>
     /// <item><description><c>python-sdk/tests/test_slug_contract.py</c> (<c>CROSS_SDK_SLUG_CASES</c>)</description></item>
+    /// <item><description><c>go-sdk/destinations_fields_test.go</c> (<c>crossSDKSlugCases</c>)</description></item>
     /// </list>
     /// </summary>
     [Theory]
@@ -204,6 +205,28 @@ public class DestinationRequestSerializationTests
     [InlineData("a\u064db", "ab")]
     [InlineData("\u0939\u093f\u0928\u094d\u0926\u0940 name", "name")]
     [InlineData("\u05d0\u05b8 hebrew", "hebrew")]
+    // The rows below are the cases where the four implementations can disagree for reasons that
+    // have nothing to do with the algorithm, so they are the ones worth pinning. Each was run
+    // against all four before being written down.
+    //
+    // Not marks themselves (both are Lm) but their NFKD is one, so decomposing before stripping
+    // makes them vanish rather than separate. Go folds per rune and needed an explicit empty fold
+    // to match.
+    [InlineData("a\uff9eb", "ab")]
+    [InlineData("a\uff9fb", "ab")]
+    // Mn only from Unicode 16, so a runtime on 15.0 does not strip it without SlugMarkAdditions.
+    [InlineData("a\u1acfb", "ab")]
+    // The same, outside the BMP: this SDK read it as two surrogate halves, neither of them a mark,
+    // until the fold moved to runes.
+    [InlineData("a\U0001e5eeb", "ab")]
+    // The other direction: Mn in Unicode 15.0 and Mc from 15.1. A spacing mark separates.
+    [InlineData("a\U0001171eb", "a-b")]
+    // Unassigned before Unicode 16, where it decomposes to "A". Without PreFold an older runtime
+    // leaves it alone and it separates instead.
+    [InlineData("a\U0001ccd6b", "aab")]
+    // A noncharacter: separates, and must not throw. Normalize rejects these outright, which is why
+    // PreFold swaps in U+FFFD.
+    [InlineData("a\ufffeb", "a-b")]
     public void CrossSdkSlugCases(string name, string expected)
     {
         var slug = CreateDestinationRequest.DeriveSlug(name);
@@ -287,6 +310,63 @@ public class DestinationRequestSerializationTests
 
             Assert.True(Regex.IsMatch(slug, SlugPattern), $"'{name}' produced '{slug}'");
             Assert.True(slug.Length <= 50);
+        }
+    }
+
+    /// <summary>
+    /// The 75 marks the reference runtime strips that Unicode 15.0 does not know, written out
+    /// independently of <c>SlugMarkAdditions</c> so a typo in one of its ranges fails here.
+    /// </summary>
+    /// <remarks>
+    /// .NET 8's own tables already classify 36 of these as non-spacing marks, so on this runtime
+    /// that many rows pass whether or not the table is right; the exhaustive check lives in the
+    /// Python and Go suites, whose runtimes are further behind. What this pins on every runtime is
+    /// the other 39, and the rune-wise fold - a char loop saw the astral ones as surrogate halves.
+    /// </remarks>
+    private const string NewerUnicodeMarks =
+        "0897 1ACF-1ADD 1AE0-1AEB 10D69-10D6D 10EFA-10EFC 113BB-113C0 113CE 113D0 113D2 " +
+        "113E1-113E2 11B60 11B62-11B64 11B66 11F5A 1611E-16129 1612D-1612F 1E5EE-1E5EF 1E6E3 " +
+        "1E6E6 1E6EE-1E6EF 1E6F5";
+
+    private static IEnumerable<int> NewerUnicodeMarkCodePoints()
+    {
+        foreach (var span in NewerUnicodeMarks.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var bounds = span.Split('-');
+            var low = int.Parse(bounds[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            var high = int.Parse(bounds[^1], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            for (var codePoint = low; codePoint <= high; codePoint++)
+            {
+                yield return codePoint;
+            }
+        }
+    }
+
+    [Fact]
+    public void DeriveSlug_StripsMarksANewerUnicodeAdded()
+    {
+        var codePoints = NewerUnicodeMarkCodePoints().ToList();
+        Assert.Equal(75, codePoints.Count);
+
+        foreach (var codePoint in codePoints)
+        {
+            var name = "a" + char.ConvertFromUtf32(codePoint) + "b";
+            Assert.Equal("ab", CreateDestinationRequest.DeriveSlug(name));
+        }
+    }
+
+    [Fact]
+    public void DeriveSlug_FoldsTheCharactersANewerUnicodeDecomposesToAscii()
+    {
+        // Unassigned before Unicode 16, so Normalize leaves them alone here and PreFold is what
+        // makes them letters instead of separators.
+        Assert.Equal("asb", CreateDestinationRequest.DeriveSlug("a\ua7f1b"));
+
+        const string alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+        for (var offset = 0; offset < alphabet.Length; offset++)
+        {
+            var name = "a" + char.ConvertFromUtf32(0x1CCD6 + offset) + "b";
+            Assert.Equal($"a{alphabet[offset]}b", CreateDestinationRequest.DeriveSlug(name));
         }
     }
 }
