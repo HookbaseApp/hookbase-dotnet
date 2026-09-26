@@ -3,8 +3,8 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Hookbase.Exceptions;
+using Hookbase.Json;
 
 namespace Hookbase.Http;
 
@@ -18,12 +18,7 @@ public class ApiClient : IApiClient, IDisposable
     private readonly int _maxRetries;
     private readonly Random _random = new();
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
+    private static readonly JsonSerializerOptions JsonOptions = HookbaseJson.Options;
 
     private static readonly HashSet<int> RetryableStatusCodes = new()
     {

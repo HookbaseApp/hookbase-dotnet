@@ -1,4 +1,7 @@
+using Hookbase.Exceptions;
 using Hookbase.Json;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -143,8 +146,27 @@ public record Destination
 /// </summary>
 public record CreateDestinationRequest
 {
+    private readonly string? _slug;
+
     public required string Name { get; init; }
-    public required string Slug { get; init; }
+
+    /// <summary>
+    /// URL-safe identifier for the destination. The API requires it on create
+    /// (<c>^[a-z0-9-]+$</c>, max 50 characters).
+    /// </summary>
+    /// <remarks>
+    /// Optional here: when it is left unset or blank it is derived from <see cref="Name"/>, so a
+    /// call that omits it still satisfies the API instead of 400ing. Reading this property returns
+    /// the value that will be sent, or <c>null</c> when <see cref="Name"/> has nothing to derive
+    /// from - in which case <c>CreateAsync</c> throws before any request is made. An explicitly
+    /// supplied slug is never rewritten.
+    /// </remarks>
+    public string? Slug
+    {
+        get => string.IsNullOrWhiteSpace(_slug) ? TryDeriveSlug(Name) : _slug;
+        init => _slug = value;
+    }
+
     public DestinationType? Type { get; init; }
     public string? Url { get; init; }
     public string? Method { get; init; }
@@ -158,6 +180,86 @@ public record CreateDestinationRequest
     public bool? UseStaticIp { get; init; }
     public int? BatchSize { get; init; }
     public int? BatchWindowSeconds { get; init; }
+
+    /// <summary>
+    /// Returns this request with <see cref="Slug"/> resolved to the value that will be sent,
+    /// deriving it from <see cref="Name"/> when the caller left it unset or blank.
+    /// </summary>
+    /// <remarks>
+    /// Called by <c>DestinationsResource.CreateAsync</c> so an underivable name fails before any
+    /// HTTP request instead of sending a body the API will reject.
+    /// </remarks>
+    /// <exception cref="HookbaseException">
+    /// No slug was supplied and none can be derived from <see cref="Name"/>.
+    /// </exception>
+    public CreateDestinationRequest WithResolvedSlug()
+        => string.IsNullOrWhiteSpace(_slug) ? this with { Slug = DeriveSlug(Name) } : this;
+
+    /// <summary>
+    /// Derives an API-acceptable slug (<c>^[a-z0-9-]+$</c>, max 50 characters) from a destination
+    /// name.
+    /// </summary>
+    /// <remarks>
+    /// Kept byte-identical to the other Hookbase SDKs (reference:
+    /// <c>deriveDestinationSlug</c> in <c>node-sdk/src/resources/wire.ts</c>): decompose to NFKD,
+    /// drop the non-spacing marks the decomposition leaves behind so <c>Café EU</c> yields
+    /// <c>cafe-eu</c> rather than <c>caf-eu</c>, lowercase with the invariant culture (a
+    /// culture-sensitive <c>ToLower</c> would turn <c>I</c> into <c>ı</c> under tr-TR), replace
+    /// every run of non-alphanumerics with a single hyphen, trim hyphens, cut to 50 characters - a
+    /// plain cut, which may land mid-word - then trim a hyphen the cut left behind. Characters that
+    /// do not decompose (<c>Æ</c>, <c>Ø</c>) are dropped rather than folded; that is shared
+    /// behaviour across the SDKs, not a bug to fix here alone.
+    /// </remarks>
+    /// <exception cref="HookbaseException">
+    /// <paramref name="name"/> has no alphanumeric characters to derive a slug from.
+    /// </exception>
+    public static string DeriveSlug(string? name)
+        => TryDeriveSlug(name) ?? throw new HookbaseException(
+            $"Cannot derive a destination slug from name {JsonSerializer.Serialize(name)}: pass " +
+            "Slug explicitly, as a string matching ^[a-z0-9-]+$ (max 50 characters).");
+
+    /// <summary>Slug derivation that yields <c>null</c> instead of throwing. See <see cref="DeriveSlug"/>.</summary>
+    private static string? TryDeriveSlug(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var decomposed = name.Normalize(NormalizationForm.FormKD);
+        var builder = new StringBuilder(decomposed.Length);
+
+        foreach (var character in decomposed)
+        {
+            // Drop the combining marks the decomposition left behind, so the base letter survives
+            // as a letter instead of becoming a separator.
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            var lowered = char.ToLowerInvariant(character);
+            if (lowered is >= 'a' and <= 'z' or >= '0' and <= '9')
+            {
+                builder.Append(lowered);
+            }
+            else if (builder.Length > 0 && builder[builder.Length - 1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var slug = builder.ToString().TrimEnd('-');
+        if (slug.Length > SlugMaxLength)
+        {
+            slug = slug.Substring(0, SlugMaxLength).TrimEnd('-');
+        }
+
+        return slug.Length == 0 ? null : slug;
+    }
+
+    /// <summary>Max slug length, as <c>createDestinationSchema</c> enforces it.</summary>
+    private const int SlugMaxLength = 50;
 }
 
 /// <summary>

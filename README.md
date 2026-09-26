@@ -172,30 +172,52 @@ var targeted = await client.Messages.SendAsync("app_123", new SendMessageRequest
 
 ```csharp
 // Create endpoint
-var endpoint = await client.Endpoints.CreateAsync("app_123", new CreateEndpointRequest
+var endpoint = await client.Endpoints.CreateAsync(new CreateEndpointRequest
 {
+    ApplicationId = "app_123",
     Url = "https://customer.example.com/webhooks",
     Description = "Production webhook endpoint",
-    FilterTypes = new List<string> { "payment.*", "subscription.*" }
+    Headers = new() { ("X-Api-Key", "customer-secret") },
+    TimeoutSeconds = 30,
+    RateLimitPerSecond = 100,
+    SuccessStatusCodes = new() { 200, 201, "2xx" },
+    BackoffType = BackoffType.Exponential,
+    RetryDelays = new() { 1, 5, 30 },
+    CircuitFailureThreshold = 5,
+    CircuitSuccessThreshold = 2,
+    CircuitCooldownSeconds = 60
 });
 
 Console.WriteLine($"Endpoint secret: {endpoint.Secret}");
 
 // Update endpoint
-await client.Endpoints.UpdateAsync("app_123", "ep_123", new UpdateEndpointRequest
+var updated = await client.Endpoints.UpdateAsync("ep_123", new UpdateEndpointRequest
 {
     IsDisabled = false,
-    RateLimit = 100,
-    RateLimitPeriod = 60
+    RateLimitPerSecond = 100
 });
 
 // Rotate secret
-var newSecret = await client.Endpoints.RotateSecretAsync("app_123", "ep_123");
+var newSecret = await client.Endpoints.RotateSecretAsync("ep_123");
 
 // Get statistics
-var stats = await client.Endpoints.GetStatsAsync("app_123", "ep_123");
+var stats = await client.Endpoints.GetStatsAsync("ep_123");
 Console.WriteLine($"Success rate: {stats.SuccessRate:P}");
 ```
+
+`SuccessStatusCodes` entries are either an exact code (`200`) or a wildcard string (`"2xx"`);
+both serialize correctly. `Headers` is always sent as `[{"name": ..., "value": ...}]`.
+
+**Deprecated endpoint members.** These were never accepted by the API - it silently stripped
+them, so the endpoint came back configured differently from what was asked for. They are still
+present so existing code compiles, but they are never sent:
+
+| Deprecated | Use instead |
+|------------|-------------|
+| `FilterTypes` | subscriptions (`client.Subscriptions`) |
+| `RateLimit` | `RateLimitPerSecond` (a value set on `RateLimit` is still sent as `rateLimitPerSecond`) |
+| `RateLimitPeriod` | nothing - endpoint rate limits are always per second |
+| `Metadata` | nothing - endpoints have no metadata |
 
 ### Webhook Signature Verification
 

@@ -86,10 +86,12 @@ public class DestinationsResource : BaseResource
         CreateDestinationRequest request,
         CancellationToken cancellationToken = default)
     {
+        // Resolve the slug up front: the API requires it, and an underivable name has to fail here
+        // rather than as a 400 from a request we should never have sent.
         var response = await ApiClient.RequestAsync<GetDestinationResponse>(
             HttpMethod.Post,
             "/api/destinations",
-            body: request,
+            body: request.WithResolvedSlug(),
             cancellationToken: cancellationToken
         );
 
@@ -184,10 +186,15 @@ public class DestinationsResource : BaseResource
         ImportDestinationsRequest request,
         CancellationToken cancellationToken = default)
     {
+        var resolved = request with
+        {
+            Destinations = request.Destinations.Select(destination => destination.WithResolvedSlug()).ToList()
+        };
+
         return await ApiClient.RequestAsync<ImportDestinationsResult>(
             HttpMethod.Post,
             "/api/destinations/import",
-            body: request,
+            body: resolved,
             cancellationToken: cancellationToken
         );
     }
