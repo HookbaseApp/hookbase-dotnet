@@ -197,6 +197,13 @@ var updated = await client.Endpoints.UpdateAsync("ep_123", new UpdateEndpointReq
     RateLimitPerSecond = 100
 });
 
+// An unset member is omitted from the body, so null cannot also mean "reset this
+// setting". Name the field in Clear to send an explicit null for it:
+await client.Endpoints.UpdateAsync("ep_123", new UpdateEndpointRequest
+{
+    Clear = { EndpointField.RetryDelays }
+});
+
 // Rotate secret
 var newSecret = await client.Endpoints.RotateSecretAsync("ep_123");
 

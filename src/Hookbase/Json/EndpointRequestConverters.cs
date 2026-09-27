@@ -1,5 +1,6 @@
 using Hookbase.Models.Endpoints;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Json;
@@ -181,9 +182,54 @@ public class CreateEndpointRequestConverter : JsonConverter<CreateEndpointReques
 /// </summary>
 public class UpdateEndpointRequestConverter : JsonConverter<UpdateEndpointRequest>
 {
+    /// <summary>The wire key each clearable field is nulled under.</summary>
+    private static readonly Dictionary<EndpointField, string> ClearableFields = new()
+    {
+        [EndpointField.Description] = "description",
+        [EndpointField.SuccessStatusCodes] = "successStatusCodes",
+        [EndpointField.BackoffType] = "backoffType",
+        [EndpointField.RetryDelays] = "retryDelays",
+        [EndpointField.IpAllowlistNotes] = "ipAllowlistNotes"
+    };
+
     public override UpdateEndpointRequest? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         => JsonSerializer.Deserialize<EndpointRequestPayload>(ref reader, options)?.ToUpdate();
 
     public override void Write(Utf8JsonWriter writer, UpdateEndpointRequest value, JsonSerializerOptions options)
-        => JsonSerializer.Serialize(writer, EndpointRequestPayload.FromUpdate(value), options);
+    {
+        var payload = EndpointRequestPayload.FromUpdate(value);
+
+        if (value.Clear.Count == 0)
+        {
+            JsonSerializer.Serialize(writer, payload, options);
+            return;
+        }
+
+        // Serialize to a node and add the nulls to it, rather than hand-writing the body: the
+        // payload type stays the single list of keys the API accepts, and a field added there is
+        // carried here without a second copy of it to keep in step.
+        var body = JsonSerializer.SerializeToNode(payload, options)?.AsObject()
+            ?? throw new InvalidOperationException("Serializing the endpoint update body produced no object.");
+
+        foreach (var field in value.Clear)
+        {
+            if (!ClearableFields.TryGetValue(field, out var key))
+            {
+                throw new InvalidOperationException(
+                    $"UpdateEndpointRequest.Clear names {field}, which the Hookbase API does not accept " +
+                    "a null for. Clearable fields: " + string.Join(", ", ClearableFields.Keys) + ".");
+            }
+
+            if (body.ContainsKey(key))
+            {
+                throw new InvalidOperationException(
+                    $"UpdateEndpointRequest.Clear names {field} but that field is also set on the same " +
+                    "request; clear it or set it, not both.");
+            }
+
+            body[key] = null;
+        }
+
+        body.WriteTo(writer, options);
+    }
 }

@@ -64,12 +64,27 @@ public record Endpoint
     public string? LastSuccessAt { get; init; }
     public string? LastFailureAt { get; init; }
     public int? LastResponseStatus { get; init; }
+    /// <summary>
+    /// Whether deliveries go through Hookbase's dedicated static-IP proxy.
+    /// </summary>
+    /// <remarks>
+    /// This defaulted to <c>true</c>, which is the opposite of the API's own default
+    /// (<c>sp_webhook_endpoint_create</c> stores <c>useStaticIp === true</c>), so every endpoint
+    /// created without the setting was reported as using the static-IP proxy when it was not.
+    /// </remarks>
     [JsonConverter(typeof(BooleanConverter))]
-    public bool UseStaticIp { get; init; } = true;
+    public bool UseStaticIp { get; init; }
 
     public int TotalMessages { get; init; }
     public int TotalSuccesses { get; init; }
     public int TotalFailures { get; init; }
+
+    /// <summary>The user who created the endpoint, when a user did.</summary>
+    public string? CreatedBy { get; init; }
+
+    /// <summary>The API key that created the endpoint, when a key did.</summary>
+    public string? ApiKeyId { get; init; }
+
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
 }
@@ -211,6 +226,30 @@ public record UpdateEndpointRequest
     /// <summary>Seconds the circuit stays open before a probe delivery (10-3600).</summary>
     public int? CircuitCooldownSeconds { get; init; }
 
+    /// <summary>
+    /// Settings to reset to their platform defaults.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every member above is nullable and a null one is omitted from the body, so null means
+    /// "leave this setting alone" and cannot also mean "set this back to nothing" - even though
+    /// the API accepts an explicit null for five endpoint settings. A caller who had set a custom
+    /// retry schedule had no way to remove it. Naming a field here sends a JSON null for it:
+    /// </para>
+    /// <code>
+    /// await client.Endpoints.UpdateAsync("ep_1", new UpdateEndpointRequest
+    /// {
+    ///     Clear = { EndpointField.RetryDelays }
+    /// });
+    /// </code>
+    /// <para>
+    /// Only the fields of <see cref="EndpointField"/> can be cleared, and a field that is also set
+    /// on this request throws rather than the SDK choosing one of the two silently.
+    /// </para>
+    /// </remarks>
+    [JsonIgnore]
+    public List<EndpointField> Clear { get; init; } = new();
+
     [Obsolete("filterTypes is not accepted by the Hookbase API and is never sent. " +
               "Use subscriptions (client.Subscriptions) to control which event types reach an endpoint.")]
     [JsonIgnore]
@@ -229,6 +268,33 @@ public record UpdateEndpointRequest
     [Obsolete("metadata is not accepted by the Hookbase API on webhook endpoints and is never sent.")]
     [JsonIgnore]
     public Dictionary<string, object>? Metadata { get; init; }
+}
+
+/// <summary>
+/// An endpoint setting that <c>PATCH /api/webhook-endpoints/:id</c> accepts an explicit null for,
+/// resetting it to the platform default. Used by <see cref="UpdateEndpointRequest.Clear"/>.
+/// </summary>
+/// <remarks>
+/// These are exactly the five <c>.optional().nullable()</c> members of the API's
+/// <c>updateEndpointSchema</c>. The others are <c>.optional()</c> only: a null for any of them is
+/// a 400, which is why this is an enum rather than a free string.
+/// </remarks>
+public enum EndpointField
+{
+    /// <summary>Clears <c>description</c>.</summary>
+    Description,
+
+    /// <summary>Clears <c>successStatusCodes</c>, restoring the default 200-299.</summary>
+    SuccessStatusCodes,
+
+    /// <summary>Clears <c>backoffType</c>, restoring the default exponential curve.</summary>
+    BackoffType,
+
+    /// <summary>Clears <c>retryDelays</c>, restoring the default retry schedule.</summary>
+    RetryDelays,
+
+    /// <summary>Clears <c>ipAllowlistNotes</c>.</summary>
+    IpAllowlistNotes
 }
 
 /// <summary>
