@@ -18,6 +18,10 @@ public class EventsResource : BaseResource
     /// List all events with offset-based pagination.
     /// API uses limit/offset (not page/pageSize).
     /// </summary>
+    /// <remarks>
+    /// <paramref name="sourceId"/> takes a source ID or slug. An unknown one throws
+    /// <see cref="Hookbase.Exceptions.NotFoundException"/> rather than returning an empty page.
+    /// </remarks>
     public async Task<OffsetPage<InboundEvent>> ListAsync(
         int limit = 20,
         int offset = 0,

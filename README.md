@@ -66,6 +66,7 @@ var newSource = await client.Sources.CreateAsync(new CreateSourceRequest
 });
 
 Console.WriteLine($"Created source: {newSource.Id}");
+// Null for providers with no secret to return (wise, asana, notion); see below.
 Console.WriteLine($"Signing secret: {newSource.SigningSecret}");
 
 // Get a source
@@ -82,9 +83,41 @@ await client.Sources.UpdateAsync("source_123", new UpdateSourceRequest
 var rotatedSecret = await client.Sources.RotateSecretAsync("source_123");
 Console.WriteLine($"New secret: {rotatedSecret}");
 
+// Clear a field: null members are omitted, so name it in Clear to send an explicit null
+await client.Sources.UpdateAsync("source_123", new UpdateSourceRequest
+{
+    Clear = { SourceField.SigningSecret }
+});
+
 // Delete a source
 await client.Sources.DeleteAsync("source_123");
 ```
+
+What goes in `SigningSecret` depends on the provider. `Provider` is an open string
+(`SourceProvider` lists the values known at release); the provider catalog says which kind of
+secret each one takes:
+
+```csharp
+var provider = await client.Providers.GetAsync("stripe");
+switch (provider.SignatureVerification?.SecretSource)
+{
+    case SecretSource.Provider:
+    case SecretSource.PublicKey:
+        // paste the vendor's value into SigningSecret
+        break;
+    case SecretSource.Operator:
+        // omit it; CreateAsync returns the generated secret once
+        break;
+    case SecretSource.BuiltIn:
+        // send none; Source.VerifiesWithoutSecret is true
+        break;
+}
+```
+
+WhatsApp sources also carry a Meta verify token (`CreateSourceRequest.VerifyToken`,
+`GetVerifyTokenAsync`, `RotateVerifyTokenAsync`). Notion delivers its secret to the ingest URL
+after registration: read it with `GetPendingVerificationAsync`, paste it into Notion's verify
+form, then `AdoptPendingVerificationAsync`.
 
 ### Auto-pagination with IAsyncEnumerable
 
@@ -393,7 +426,8 @@ await client.Messages.SendAsync("app_123", new SendMessageRequest
 
 ### Inbound (Webhook Relay)
 
-- ✅ **Sources** - Fully implemented with pagination, export, import
+- ✅ **Sources** - Fully implemented with pagination, export, import, bulk delete, verify tokens, pending verification
+- ✅ **Providers** - Public provider catalog: secret rules, event types, sample payloads
 - ⏳ **Destinations** - CRUD operations (stub implementation)
 - ⏳ **Routes** - CRUD, circuit breaker, bulk operations (stub)
 - ⏳ **Events** - List, get, debug (stub)
