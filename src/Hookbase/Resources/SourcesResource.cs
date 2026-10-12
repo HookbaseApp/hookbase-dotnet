@@ -73,7 +73,7 @@ public class SourcesResource : BaseResource
     }
 
     /// <summary>
-    /// Get a source by ID or slug.
+    /// Get a source by ID or slug. An unknown ID or slug throws <see cref="Hookbase.Exceptions.NotFoundException"/>.
     /// </summary>
     public async Task<Source> GetAsync(string id, CancellationToken cancellationToken = default)
     {
@@ -104,7 +104,9 @@ public class SourcesResource : BaseResource
     }
 
     /// <summary>
-    /// Update an existing source.
+    /// Update an existing source. The API answers <c>{success: true}</c>, not the updated source;
+    /// call <see cref="GetAsync"/> to read it back. See <see cref="UpdateSourceRequest.Clear"/>
+    /// to send an explicit null.
     /// </summary>
     public async Task UpdateAsync(
         string id,
@@ -132,8 +134,16 @@ public class SourcesResource : BaseResource
     }
 
     /// <summary>
-    /// Rotate the signing secret for a source.
+    /// Replace the signing secret with a freshly generated one and return it.
     /// </summary>
+    /// <remarks>
+    /// Only applies where Hookbase chooses the secret. The API answers 400
+    /// (<see cref="Hookbase.Exceptions.ValidationException"/>) for providers whose key is built in
+    /// (wise, aws-sns), that verify with a public key (paste the vendor's new key with
+    /// <see cref="UpdateAsync"/> instead), that issue their own secret (standard-webhooks and
+    /// friends: regenerate it at the vendor, then update), and whose secret arrives after
+    /// registration (asana, notion).
+    /// </remarks>
     public async Task<string> RotateSecretAsync(
         string id,
         CancellationToken cancellationToken = default)
@@ -148,7 +158,8 @@ public class SourcesResource : BaseResource
     }
 
     /// <summary>
-    /// Reveal the signing secret for a source.
+    /// Reveal the signing secret for a source. A source with no secret throws
+    /// <see cref="Hookbase.Exceptions.NotFoundException"/>.
     /// </summary>
     public async Task<string> RevealSecretAsync(
         string id,
@@ -161,6 +172,93 @@ public class SourcesResource : BaseResource
         );
 
         return response.SigningSecret;
+    }
+
+    /// <summary>
+    /// Get the Meta verify token for a source (whatsapp). A provider with no verify token throws
+    /// <see cref="Hookbase.Exceptions.ValidationException"/>.
+    /// </summary>
+    public async Task<string> GetVerifyTokenAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await ApiClient.RequestAsync<VerifyTokenResponse>(
+            HttpMethod.Get,
+            $"/api/sources/{Uri.EscapeDataString(id)}/verify-token",
+            cancellationToken: cancellationToken
+        );
+
+        return response.VerifyToken;
+    }
+
+    /// <summary>
+    /// Generate a new Meta verify token for a source and return it. Meta checks the token only when
+    /// the callback URL is (re)registered, so paste the new one there.
+    /// </summary>
+    public async Task<string> RotateVerifyTokenAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await ApiClient.RequestAsync<VerifyTokenResponse>(
+            HttpMethod.Post,
+            $"/api/sources/{Uri.EscapeDataString(id)}/rotate-verify-token",
+            cancellationToken: cancellationToken
+        );
+
+        return response.VerifyToken;
+    }
+
+    /// <summary>
+    /// Get the verification token a vendor delivered to the ingest URL during registration
+    /// (notion). Throws <see cref="Hookbase.Exceptions.NotFoundException"/> when none is waiting.
+    /// </summary>
+    /// <remarks>
+    /// The token arrived unauthenticated: paste it into the vendor's verify form first, and only
+    /// then call <see cref="AdoptPendingVerificationAsync"/>. A planted token simply fails there.
+    /// </remarks>
+    public async Task<PendingVerification> GetPendingVerificationAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        return await ApiClient.RequestAsync<PendingVerification>(
+            HttpMethod.Get,
+            $"/api/sources/{Uri.EscapeDataString(id)}/pending-verification",
+            cancellationToken: cancellationToken
+        );
+    }
+
+    /// <summary>
+    /// Make the waiting verification token the source's signing secret. Throws
+    /// <see cref="Hookbase.Exceptions.NotFoundException"/> when none is waiting.
+    /// </summary>
+    public async Task AdoptPendingVerificationAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        await ApiClient.RequestAsync<SuccessResponse>(
+            HttpMethod.Post,
+            $"/api/sources/{Uri.EscapeDataString(id)}/pending-verification/adopt",
+            cancellationToken: cancellationToken
+        );
+    }
+
+    /// <summary>
+    /// Delete up to 100 sources. If any ID does not belong to the organization nothing is deleted
+    /// and the API answers 400 (<see cref="Hookbase.Exceptions.ValidationException"/>).
+    /// </summary>
+    /// <returns>The number of sources deleted.</returns>
+    public async Task<int> BulkDeleteAsync(
+        IEnumerable<string> ids,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await ApiClient.RequestAsync<BulkDeleteResponse>(
+            HttpMethod.Delete,
+            "/api/sources/bulk",
+            body: new { ids = ids.ToList() },
+            cancellationToken: cancellationToken
+        );
+
+        return response.Deleted;
     }
 
     /// <summary>
@@ -220,6 +318,17 @@ public class SourcesResource : BaseResource
     private record SuccessResponse
     {
         public bool Success { get; init; }
+    }
+
+    private record VerifyTokenResponse
+    {
+        public required string VerifyToken { get; init; }
+    }
+
+    private record BulkDeleteResponse
+    {
+        public bool Success { get; init; }
+        public int Deleted { get; init; }
     }
 
 }

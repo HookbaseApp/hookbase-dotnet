@@ -107,6 +107,11 @@ public class HookbaseClient : IDisposable
     public ApiKeysResource ApiKeys { get; }
 
     /// <summary>
+    /// Public provider catalog: signing-secret rules, event types and sample payloads.
+    /// </summary>
+    public ProvidersResource Providers { get; }
+
+    /// <summary>
     /// Creates a new Hookbase client with the specified options.
     /// </summary>
     public HookbaseClient(HookbaseClientOptions options)
@@ -156,6 +161,7 @@ public class HookbaseClient : IDisposable
         Tunnels = new TunnelsResource(_apiClient);
         CronJobs = new CronJobsResource(_apiClient);
         ApiKeys = new ApiKeysResource(_apiClient);
+        Providers = new ProvidersResource(_apiClient);
     }
 
     /// <summary>

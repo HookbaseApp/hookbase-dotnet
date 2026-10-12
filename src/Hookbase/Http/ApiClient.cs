@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -19,6 +20,32 @@ public class ApiClient : IApiClient, IDisposable
     private readonly Random _random = new();
 
     private static readonly JsonSerializerOptions JsonOptions = HookbaseJson.Options;
+
+    /// <summary>
+    /// The User-Agent sent with every request, <c>Hookbase.NET/&lt;package version&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// Read from the assembly rather than written out: it was hardcoded as 1.0.0 through every
+    /// release up to 4.1.0, so the API could not tell SDK versions apart. The informational
+    /// version is the csproj <c>Version</c>; the SDK appends <c>+&lt;commit&gt;</c> to it when
+    /// building from git, which is stripped here.
+    /// </remarks>
+    internal static readonly string UserAgent = "Hookbase.NET/" + ResolveVersion();
+
+    private static string ResolveVersion()
+    {
+        var assembly = typeof(ApiClient).Assembly;
+        var informational = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+        if (!string.IsNullOrEmpty(informational))
+        {
+            var plus = informational.IndexOf('+');
+            return plus >= 0 ? informational[..plus] : informational;
+        }
+
+        return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    }
 
     private static readonly HashSet<int> RetryableStatusCodes = new()
     {
@@ -47,7 +74,7 @@ public class ApiClient : IApiClient, IDisposable
         _httpClient.BaseAddress = new Uri(baseUrl);
         _httpClient.Timeout = TimeSpan.FromSeconds(timeout);
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Hookbase.NET/1.0.0");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
     }
 
     public async Task<TResponse> RequestAsync<TResponse>(

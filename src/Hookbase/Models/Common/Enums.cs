@@ -3,62 +3,152 @@ using System.Text.Json.Serialization;
 namespace Hookbase.Models.Common;
 
 /// <summary>
-/// Providers the API will accept for a source.
+/// Providers the API accepted for a source when this version was released.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Mirrors <c>SUPPORTED_SIGNATURE_PROVIDERS</c> in the API
-/// (<c>api/src/utils/signature-schemes.ts</c>), which is derived from the signature scheme
-/// table rather than restated. Regenerate with <c>npx tsx scripts/print-source-enums.ts</c>
-/// in the api package. Do not hand-add members: a value the API does not accept is a 400 the
-/// type promised would not happen.
+/// <c>Provider</c> is an open string on every model, and these are suggestions, not a closed
+/// set: the API validates the value against <c>SUPPORTED_SIGNATURE_PROVIDERS</c>
+/// (<c>api/src/utils/signature-schemes.ts</c>) and answers anything else with a 400 that says
+/// so, so a provider added server-side later can be passed as a literal string without waiting
+/// for an SDK release. Regenerate this list with <c>npx tsx scripts/print-source-enums.ts</c> in
+/// the api package rather than hand-adding members.
 /// </para>
 /// <para>
 /// These are string constants rather than an enum because <c>CreateSourceRequest.Provider</c>
-/// is a <c>string?</c> — every model in this SDK carries these fields as strings — so the
-/// previous enum could not be assigned to the property it named. (The example in
-/// <c>examples/BasicUsage</c> tried to, and did not compile; the examples are not in
-/// <c>Hookbase.sln</c>, so CI never caught it.) Constants also pin the exact wire value
-/// instead of leaving it to whichever <c>JsonNamingPolicy</c> happens to be in effect.
+/// is a <c>string?</c>, and constants pin the exact wire value instead of leaving it to whichever
+/// <c>JsonNamingPolicy</c> happens to be in effect.
 /// </para>
 /// <para>
-/// The previous list was wrong in both directions. <c>Pipedrive</c>, <c>Hubspot</c>,
-/// <c>Salesforce</c>, <c>Webflow</c>, <c>Clickfunnels</c> and <c>Webhook</c> were never
-/// providers the API accepted and do not exist anywhere else in this product;
-/// <c>Sendgrid</c> and <c>Mailgun</c> were never accepted either (SendGrid signs with ECDSA,
-/// Mailgun puts its signature in the POST body, so neither fits this scheme model). It was
-/// also missing <c>Custom</c>, the fallback every unsupported provider is meant to use.
+/// <c>Sendgrid</c>, <c>Mailgun</c> and <c>Linear</c> were removed in an earlier correction because the API did not
+/// accept them then; it does now, with real verification schemes, so they are back.
+/// <c>Svix</c>, <c>Clerk</c>, <c>Resend</c>, <c>Render</c>, <c>Etsy</c> and <c>Stytch</c> are
+/// aliases that verify as <see cref="StandardWebhooks"/>, and <see cref="Generic"/> as
+/// <see cref="Custom"/>.
+/// </para>
+/// <para>
+/// What a source's signing secret must be depends on the provider; read it from the provider
+/// catalog (<c>client.Providers.GetAsync(id)</c>, <c>SignatureVerification.SecretSource</c>) and
+/// see <see cref="SecretSource"/>.
 /// </para>
 /// </remarks>
 public static class SourceProvider
 {
+    public const string Adyen = "adyen";
     public const string Airtable = "airtable";
     public const string Asana = "asana";
+    public const string Auth0 = "auth0";
+    public const string AwsSns = "aws-sns";
+    public const string Bigcommerce = "bigcommerce";
     public const string Bitbucket = "bitbucket";
+    public const string Braintree = "braintree";
     public const string Calendly = "calendly";
+    public const string Chargebee = "chargebee";
+    public const string Circleci = "circleci";
+    public const string Clerk = "clerk";
+    public const string Clickup = "clickup";
+    public const string Cloudflare = "cloudflare";
+    public const string CoinbaseCommerce = "coinbase-commerce";
     public const string Custom = "custom";
+    public const string Datadog = "datadog";
+    public const string Discord = "discord";
+    public const string Docusign = "docusign";
+    public const string Etsy = "etsy";
+    public const string Freshdesk = "freshdesk";
     public const string Generic = "generic";
     public const string GitHub = "github";
     public const string GitLab = "gitlab";
+    public const string GitLabSigningToken = "gitlab-signing-token";
+    public const string Gocardless = "gocardless";
+    public const string Grafana = "grafana";
+    public const string GrafanaHmac = "grafana-hmac";
+    public const string GrafanaHmacTimestamped = "grafana-hmac-timestamped";
     public const string Heroku = "heroku";
+    public const string Hubspot = "hubspot";
     public const string Intercom = "intercom";
+    public const string Jira = "jira";
+    public const string Klaviyo = "klaviyo";
+    public const string Launchdarkly = "launchdarkly";
     public const string LemonSqueezy = "lemonsqueezy";
+    public const string Linear = "linear";
+    public const string Mailchimp = "mailchimp";
+    public const string Mailgun = "mailgun";
+    public const string Mollie = "mollie";
+    public const string Netlify = "netlify";
+    public const string Newrelic = "newrelic";
     public const string Notion = "notion";
+    public const string Okta = "okta";
     public const string Paddle = "paddle";
+    public const string Pagerduty = "pagerduty";
+    public const string Paypal = "paypal";
+    public const string Pipedrive = "pipedrive";
+    public const string Postmark = "postmark";
+    public const string Railway = "railway";
     public const string Razorpay = "razorpay";
+    public const string Render = "render";
+    public const string Resend = "resend";
+    public const string Segment = "segment";
+    public const string Sendgrid = "sendgrid";
     public const string Sentry = "sentry";
     public const string Shopify = "shopify";
     public const string Slack = "slack";
+    public const string Square = "square";
     public const string StandardWebhooks = "standard-webhooks";
     public const string Stripe = "stripe";
+    public const string Stytch = "stytch";
+    public const string Supabase = "supabase";
+    public const string SupabaseAuthHooks = "supabase-auth-hooks";
 
     /// <summary>Alias of <see cref="StandardWebhooks"/>; both resolve to the same scheme.</summary>
     public const string Svix = "svix";
 
+    public const string Telegram = "telegram";
+    public const string TerraformCloud = "terraform-cloud";
+    public const string Trello = "trello";
     public const string Twilio = "twilio";
     public const string Typeform = "typeform";
+    public const string Vercel = "vercel";
+    public const string Whatsapp = "whatsapp";
+    public const string Wise = "wise";
+    public const string WiseSandbox = "wise-sandbox";
+    public const string Woocommerce = "woocommerce";
     public const string WorkOS = "workos";
+    public const string Zendesk = "zendesk";
     public const string Zoom = "zoom";
+}
+
+
+/// <summary>
+/// Which side produces a provider's signing credential: the catalog's
+/// <c>signatureVerification.secretSource</c>.
+/// </summary>
+public static class SecretSource
+{
+    /// <summary>
+    /// The vendor issues the secret; paste it as <c>SigningSecret</c>. For several providers
+    /// (standard-webhooks, svix, clerk, resend, airtable, gitlab-signing-token,
+    /// supabase-auth-hooks, jira, and the discord and sendgrid public keys) it is required on
+    /// create and format-checked, both as a 400.
+    /// </summary>
+    public const string Provider = "provider";
+
+    /// <summary>
+    /// The vendor never issues one. Omit <c>SigningSecret</c> and Hookbase generates it, returned
+    /// once on the created source; paste that into the vendor.
+    /// </summary>
+    public const string Operator = "operator";
+
+    /// <summary>Paste the vendor's public verification key (PEM or base64).</summary>
+    public const string PublicKey = "public_key";
+
+    /// <summary>
+    /// Hookbase already holds the vendor's key (wise, wise-sandbox, aws-sns). Send no secret:
+    /// one is a 400. The source reports <c>VerifiesWithoutSecret</c>.
+    /// </summary>
+    public const string BuiltIn = "built_in";
+
+    /// <summary>The vendor does not sign; a secret may still be set for custom HMAC.</summary>
+    public const string None = "none";
 }
 
 /// <summary>
