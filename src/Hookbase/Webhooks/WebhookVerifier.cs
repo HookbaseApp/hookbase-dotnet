@@ -11,12 +11,12 @@ namespace Hookbase.Webhooks;
 public class WebhookVerifier
 {
     private readonly byte[] _secretKey;
-    private static readonly char[] Separator = new[] { ',' };
 
     /// <summary>
     /// Creates a new webhook verifier with the given secret.
     /// </summary>
-    /// <param name="secret">Webhook signing secret (may include 'whsec_' prefix)</param>
+    /// <param name="secret">Webhook signing secret: 'whsec_' + base64 (endpoint secrets), 'whsec_op_' +
+    /// base64 (operational webhook secrets), or a legacy 64-character hex secret.</param>
     public WebhookVerifier(string secret)
     {
         if (string.IsNullOrWhiteSpace(secret))
@@ -24,13 +24,24 @@ public class WebhookVerifier
             throw new ArgumentException("Secret cannot be null or empty", nameof(secret));
         }
 
-        // Remove 'whsec_' prefix if present
-        var cleanSecret = secret.StartsWith("whsec_") ? secret.Substring(6) : secret;
+        // Strip 'whsec_', plus the 'op_' infix operational webhook secrets carry. base64 never
+        // contains '_', so this never trims a regular secret.
+        var cleanSecret = secret;
+        if (cleanSecret.StartsWith("whsec_", StringComparison.Ordinal))
+        {
+            cleanSecret = cleanSecret.Substring(6);
+            if (cleanSecret.StartsWith("op_", StringComparison.Ordinal))
+            {
+                cleanSecret = cleanSecret.Substring(3);
+            }
+        }
 
         try
         {
-            // Decode base64 secret
-            _secretKey = Convert.FromBase64String(cleanSecret);
+            // Legacy secrets are 32 bytes of hex; everything else is base64 (Standard Webhooks).
+            _secretKey = IsHex64(cleanSecret)
+                ? Convert.FromHexString(cleanSecret)
+                : Convert.FromBase64String(cleanSecret);
         }
         catch (FormatException ex)
         {
@@ -83,6 +94,13 @@ public class WebhookVerifier
             );
         }
 
+        if (webhookTime - now > tolerance.Value)
+        {
+            throw new WebhookVerificationException(
+                $"Webhook timestamp is in the future: {webhookTime:O} (now: {now:O}, tolerance: {tolerance.Value})"
+            );
+        }
+
         // Verify signature
         var expectedSignatures = ParseSignatures(signatureHeader);
         if (expectedSignatures.Count == 0)
@@ -90,7 +108,8 @@ public class WebhookVerifier
             throw new WebhookVerificationException("No signatures found in webhook-signature header");
         }
 
-        var signedContent = $"{webhookId}.{timestamp}.{payload}";
+        // Sign the timestamp exactly as sent, as the sender did.
+        var signedContent = $"{webhookId}.{timestampStr}.{payload}";
         var computedSignature = ComputeSignature(signedContent);
 
         var isValid = false;
@@ -152,26 +171,49 @@ public class WebhookVerifier
         return Convert.ToBase64String(hash);
     }
 
+    /// <summary>
+    /// Parses a Standard Webhooks signature header: space-separated "version,signature" entries,
+    /// e.g. "v1,abc= v1,def=" while a secret rotation is in its grace period. Only v1 entries are
+    /// returned. (This used to split on ',', which only worked for a single signature.)
+    /// </summary>
     private static List<string> ParseSignatures(string signatureHeader)
     {
         var signatures = new List<string>();
-        var parts = signatureHeader.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
+        var entries = signatureHeader.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
-        foreach (var part in parts)
+        foreach (var entry in entries)
         {
-            var trimmed = part.Trim();
-            if (trimmed.StartsWith("v1,"))
+            var comma = entry.IndexOf(',');
+            if (comma <= 0 || comma == entry.Length - 1)
             {
-                signatures.Add(trimmed.Substring(3));
+                continue;
             }
-            else if (!trimmed.Contains(","))
+
+            if (entry.Substring(0, comma) == "v1")
             {
-                // Assume it's a raw signature
-                signatures.Add(trimmed);
+                signatures.Add(entry.Substring(comma + 1));
             }
         }
 
         return signatures;
+    }
+
+    private static bool IsHex64(string value)
+    {
+        if (value.Length != 64)
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (!Uri.IsHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool SecureCompare(string a, string b)
