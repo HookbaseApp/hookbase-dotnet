@@ -87,6 +87,7 @@ public class ApiClient : IApiClient, IDisposable
     {
         var url = BuildUrl(path, queryParams);
         var attempt = 0;
+        var canRetry = IsRetrySafe(method, idempotencyKey);
 
         while (true)
         {
@@ -116,7 +117,7 @@ public class ApiClient : IApiClient, IDisposable
 
                 // Check if we should retry
                 var statusCode = (int)response.StatusCode;
-                if (attempt < _maxRetries && RetryableStatusCodes.Contains(statusCode))
+                if (canRetry && attempt < _maxRetries && RetryableStatusCodes.Contains(statusCode))
                 {
                     var delay = CalculateDelay(attempt, response);
                     await Task.Delay(delay, cancellationToken);
@@ -130,7 +131,7 @@ public class ApiClient : IApiClient, IDisposable
             }
             catch (Exception ex) when (ex is not HookbaseException)
             {
-                if (attempt < _maxRetries && ShouldRetryException(ex))
+                if (canRetry && attempt < _maxRetries && ShouldRetryException(ex))
                 {
                     var delay = CalculateDelay(attempt, null);
                     await Task.Delay(delay, cancellationToken);
@@ -148,6 +149,12 @@ public class ApiClient : IApiClient, IDisposable
         CancellationToken cancellationToken)
     {
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        // A string response is the raw body (for example a CSV or JSON export), not a JSON string.
+        if (typeof(TResponse) == typeof(string))
+        {
+            return (TResponse)(object)content;
+        }
 
         try
         {
@@ -268,6 +275,19 @@ public class ApiClient : IApiClient, IDisposable
         var baseDelay = Math.Min(Math.Pow(2, attempt), 10);
         var jitter = _random.NextDouble() * 0.3 * baseDelay; // 0-30% jitter
         return TimeSpan.FromSeconds(baseDelay + jitter);
+    }
+
+    /// <summary>
+    /// Whether a failed request may be sent again without risking a duplicate side effect.
+    /// </summary>
+    /// <remarks>
+    /// A POST that failed with a 5xx or a timeout may still have been processed, so sending it
+    /// again could, for example, deliver a webhook twice. POSTs are therefore only retried when
+    /// they carry an idempotency key, which lets the API recognise the repeat.
+    /// </remarks>
+    private static bool IsRetrySafe(HttpMethod method, string? idempotencyKey)
+    {
+        return method != HttpMethod.Post || !string.IsNullOrEmpty(idempotencyKey);
     }
 
     private static bool ShouldRetryException(Exception ex)

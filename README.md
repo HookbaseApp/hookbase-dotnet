@@ -176,8 +176,8 @@ var appOrCreate = await client.Applications.GetOrCreateAsync(new GetOrCreateAppl
 ### Sending Webhook Messages
 
 ```csharp
-// Send a message to all subscribed endpoints
-var response = await client.Messages.SendAsync("app_123", new SendMessageRequest
+// Send a message to all subscribed endpoints. The first argument is your organization id.
+var response = await client.Messages.SendAsync("org_123", new SendMessageRequest
 {
     EventType = "payment.succeeded",
     Payload = new Dictionary<string, object>
@@ -186,14 +186,14 @@ var response = await client.Messages.SendAsync("app_123", new SendMessageRequest
         ["currency"] = "usd",
         ["customer_id"] = "cust_123"
     },
-    EventId = "evt_unique_123" // Optional idempotency key
+    IdempotencyKey = "payment_123_succeeded" // Optional; one is generated when unset
 });
 
-Console.WriteLine($"Message ID: {response.MessageId}");
-Console.WriteLine($"Sent to {response.OutboundMessages.Count} endpoints");
+Console.WriteLine($"Event ID: {response.EventId}");
+Console.WriteLine($"Queued for {response.MessagesQueued} endpoints");
 
-// Send to specific endpoints only
-var targeted = await client.Messages.SendAsync("app_123", new SendMessageRequest
+// Send to specific endpoints, or to one application's endpoints, only
+var targeted = await client.Messages.SendAsync("org_123", new SendMessageRequest
 {
     EventType = "order.created",
     Payload = new Dictionary<string, object> { ["order_id"] = "ord_456" },
@@ -413,10 +413,12 @@ var client = new HookbaseClient(new HookbaseClientOptions
 ### Idempotency Keys
 
 ```csharp
-// Messages support idempotency via EventId
-await client.Messages.SendAsync("app_123", new SendMessageRequest
+// A send with the same IdempotencyKey is not delivered twice. When you do not set one, the SDK
+// generates one per call, so its own retries (on timeouts, 429 and 5xx) cannot duplicate a send.
+// Other POST requests are not retried automatically, because repeating them is not safe.
+await client.Messages.SendAsync("org_123", new SendMessageRequest
 {
-    EventId = "unique_event_id_123", // Prevents duplicate sends
+    IdempotencyKey = "unique_event_id_123",
     EventType = "payment.succeeded",
     Payload = data
 });

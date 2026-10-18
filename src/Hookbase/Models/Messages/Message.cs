@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Hookbase.Models.Messages;
 
 /// <summary>
@@ -15,47 +18,166 @@ public record Message
 }
 
 /// <summary>
-/// Outbound message delivery attempt.
+/// An outbound message: one event's delivery to one endpoint.
 /// </summary>
+/// <remarks>
+/// Field names follow <c>GET /outbound-messages</c>, <c>GET /outbound-messages/:id</c> and
+/// <c>GET /outbound-messages/dlq/messages</c>. The list returns a subset; the detail-only and
+/// DLQ-only members are null where the API does not send them.
+/// </remarks>
 public record OutboundMessage
 {
     public string? Id { get; init; }
-    public string? MessageId { get; init; }
+
+    /// <summary>The event this message delivers (the id <c>send-event</c> returned).</summary>
+    public string? EventId { get; init; }
+
+    public string? EventType { get; init; }
+    public string? ApplicationId { get; init; }
+    public string? ApplicationName { get; init; }
     public string? EndpointId { get; init; }
     public string? EndpointUrl { get; init; }
-    public string? EventType { get; init; }
+
+    /// <summary>
+    /// pending, processing, success, failed, awaiting_retry, exhausted or dlq. Kept as a string so a
+    /// status added later does not fail deserialization.
+    /// </summary>
     public string? Status { get; init; }
+
     public int Attempts { get; init; }
     public int MaxAttempts { get; init; }
-    public string? LastAttemptAt { get; init; }
-    public string? NextAttemptAt { get; init; }
     public int? LastResponseStatus { get; init; }
-    public string? LastResponseBody { get; init; }
-    public string? LastError { get; init; }
-    public string? DeliveredAt { get; init; }
+    public string? LastErrorType { get; init; }
+    public string? LastErrorMessage { get; init; }
     public string? CreatedAt { get; init; }
+
+    /// <summary>When the message reached a final state (delivered, exhausted or discarded from the DLQ).</summary>
+    public string? CompletedAt { get; init; }
+
+    // Detail-only (GET /outbound-messages/:id)
+    public string? SubscriptionId { get; init; }
+    public string? EventTypeId { get; init; }
+    public string? EndpointDescription { get; init; }
+    public string? PayloadKey { get; init; }
+    public long? PayloadSizeBytes { get; init; }
+    public string? PayloadHash { get; init; }
+    public JsonElement? Metadata { get; init; }
+    public int? Priority { get; init; }
+
+    /// <summary>The delivered payload, or null once retention has removed it.</summary>
+    public JsonElement? Payload { get; init; }
+
+    // DLQ-only (GET /outbound-messages/dlq/messages)
+    public string? DlqReason { get; init; }
+    public string? DlqMovedAt { get; init; }
+    public int? DlqRetryCount { get; init; }
+    public string? DlqLastRetryAt { get; init; }
+
+    /// <summary>Same as <see cref="EventId"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API has no messageId field; this returns EventId. Use EventId.")]
+    public string? MessageId => EventId;
+
+    /// <summary>Same as <see cref="LastErrorMessage"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is lastErrorMessage. Use LastErrorMessage.")]
+    public string? LastError => LastErrorMessage;
+
+    /// <summary>Same as <see cref="CompletedAt"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is completedAt, which is also set for messages that were not delivered. Use CompletedAt with Status.")]
+    public string? DeliveredAt => CompletedAt;
+
+    [JsonIgnore]
+    [Obsolete("The API does not return this field; it is always null.")]
+    public string? LastAttemptAt { get; init; }
+
+    [JsonIgnore]
+    [Obsolete("The API does not return this field; it is always null.")]
+    public string? NextAttemptAt { get; init; }
+
+    [JsonIgnore]
+    [Obsolete("The API does not return this field; it is always null. Response bodies are on the attempts.")]
+    public string? LastResponseBody { get; init; }
+
+    [JsonIgnore]
+    [Obsolete("The API does not return this field; it is always null.")]
     public string? UpdatedAt { get; init; }
 }
 
 /// <summary>
-/// Input for sending a new message.
+/// Input for sending a new event (<c>POST /send-event</c>).
 /// </summary>
 public record SendMessageRequest
 {
+    /// <summary>The event type name, for example <c>order.created</c>.</summary>
     public required string EventType { get; init; }
+
     public required Dictionary<string, object> Payload { get; init; }
-    public string? EventId { get; init; }
-    public Dictionary<string, object>? Metadata { get; init; }
+
+    /// <summary>Send only to this application's subscribed endpoints.</summary>
+    public string? ApplicationId { get; init; }
+
+    /// <summary>Send only to this endpoint. Merged with <see cref="EndpointIds"/>.</summary>
+    public string? EndpointId { get; init; }
+
+    /// <summary>Send only to these endpoints.</summary>
     public List<string>? EndpointIds { get; init; }
+
+    /// <summary>
+    /// Makes the send safe to repeat: a second send with the same key does not deliver again. When
+    /// unset the SDK generates one per call, so its own retries cannot duplicate the event.
+    /// </summary>
+    public string? IdempotencyKey { get; init; }
+
+    /// <summary>Labels matched against subscription label filters.</summary>
+    public Dictionary<string, string>? Labels { get; init; }
+
+    /// <summary>Flat key-value metadata (string, number, boolean or null values).</summary>
+    public Dictionary<string, object>? Metadata { get; init; }
+
+    /// <summary>Priority override: 0=Critical, 1=High, 2=Normal, 3=Low, 4=Bulk.</summary>
+    public int? Priority { get; init; }
+
+    /// <summary>
+    /// The API has no eventId input and silently dropped it. A value set here is now used as the
+    /// idempotency key when <see cref="IdempotencyKey"/> is not set, which is what it was documented to do.
+    /// </summary>
+    [Obsolete("The API ignores eventId. Use IdempotencyKey; a value set here is sent as the idempotency key.")]
+    public string? EventId { get; init; }
 }
 
 /// <summary>
-/// Response after sending a message.
+/// Response after sending an event.
 /// </summary>
 public record SendMessageResponse
 {
-    public string? MessageId { get; init; }
+    /// <summary>The id of the event that was created.</summary>
+    public string? EventId { get; init; }
+
+    /// <summary>How many endpoint deliveries were queued.</summary>
+    public int MessagesQueued { get; init; }
+
+    /// <summary>The endpoints the event was queued for.</summary>
+    public List<SendMessageEndpoint>? Endpoints { get; init; }
+
+    /// <summary>Same as <see cref="EventId"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API has no messageId field; this returns EventId. Use EventId.")]
+    public string? MessageId => EventId;
+
+    [JsonIgnore]
+    [Obsolete("The API does not return this field; it is always null. Use Endpoints and MessagesQueued.")]
     public List<OutboundMessageInfo>? OutboundMessages { get; init; }
+}
+
+/// <summary>
+/// An endpoint an event was queued for.
+/// </summary>
+public record SendMessageEndpoint
+{
+    public string? Id { get; init; }
+    public string? Url { get; init; }
 }
 
 public record OutboundMessageInfo
@@ -66,15 +188,43 @@ public record OutboundMessageInfo
 }
 
 /// <summary>
-/// Message statistics summary.
+/// Outbound message counts by status (<c>GET /outbound-messages/stats/summary</c>).
 /// </summary>
 public record MessageStatsSummary
 {
-    public int TotalMessages { get; init; }
-    public int PendingMessages { get; init; }
-    public int DeliveredMessages { get; init; }
-    public int FailedMessages { get; init; }
-    public double SuccessRate { get; init; }
+    public int Pending { get; init; }
+    public int Processing { get; init; }
+    public int Success { get; init; }
+    public int Failed { get; init; }
+    public int AwaitingRetry { get; init; }
+    public int Exhausted { get; init; }
+    public int Dlq { get; init; }
+    public int Total { get; init; }
+
+    /// <summary>Same as <see cref="Total"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is total. Use Total.")]
+    public int TotalMessages => Total;
+
+    /// <summary>Same as <see cref="Pending"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is pending. Use Pending.")]
+    public int PendingMessages => Pending;
+
+    /// <summary>Same as <see cref="Success"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is success. Use Success.")]
+    public int DeliveredMessages => Success;
+
+    /// <summary>Same as <see cref="Failed"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is failed. Use Failed, Exhausted and Dlq.")]
+    public int FailedMessages => Failed;
+
+    /// <summary><see cref="Success"/> divided by <see cref="Total"/>, or 0 when there are no messages.</summary>
+    [JsonIgnore]
+    [Obsolete("The API does not return a success rate; this is computed as Success / Total.")]
+    public double SuccessRate => Total == 0 ? 0 : (double)Success / Total;
 }
 
 /// <summary>

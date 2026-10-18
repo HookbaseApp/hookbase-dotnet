@@ -23,7 +23,8 @@ public class HookbaseClientOptions
     public int Timeout { get; set; } = 30;
 
     /// <summary>
-    /// Maximum number of retry attempts for failed requests.
+    /// Maximum number of retry attempts for failed requests (timeouts, 429 and 5xx). POST requests
+    /// are retried only when they carry an idempotency key, as <c>Messages.SendAsync</c> always does.
     /// Default: 3
     /// </summary>
     public int MaxRetries { get; set; } = 3;

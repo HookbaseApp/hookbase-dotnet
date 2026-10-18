@@ -17,19 +17,63 @@ public class MessagesResource : BaseResource
     /// <summary>
     /// Send a new outbound webhook event.
     /// </summary>
+    /// <remarks>
+    /// The request always carries an idempotency key, in the body and as the <c>Idempotency-Key</c>
+    /// header: <see cref="SendMessageRequest.IdempotencyKey"/> when set, otherwise one generated for
+    /// this call. A retry after a timeout or 5xx therefore cannot deliver the event twice.
+    /// </remarks>
     public async Task<SendMessageResponse> SendAsync(
         string organizationId,
         SendMessageRequest request,
         CancellationToken cancellationToken = default)
     {
+#pragma warning disable CS0618 // EventId is obsolete; honour it as the key it was documented to be.
+        var idempotencyKey = request.IdempotencyKey ?? request.EventId ?? GenerateIdempotencyKey();
+#pragma warning restore CS0618
+
         var response = await ApiClient.RequestAsync<SendMessageDataResponse>(
             HttpMethod.Post,
             $"/api/organizations/{Uri.EscapeDataString(organizationId)}/send-event",
-            body: request,
+            body: BuildSendEventBody(request, idempotencyKey),
+            idempotencyKey: idempotencyKey,
             cancellationToken: cancellationToken
         );
 
         return response.Data;
+    }
+
+    /// <summary>
+    /// The send-event body. Built by hand rather than serialized from the request so that the
+    /// endpoint targeting and idempotency key are always sent in the form the API reads.
+    /// </summary>
+    private static Dictionary<string, object> BuildSendEventBody(SendMessageRequest request, string idempotencyKey)
+    {
+        var body = new Dictionary<string, object>
+        {
+            ["eventType"] = request.EventType,
+            ["payload"] = request.Payload,
+            ["idempotencyKey"] = idempotencyKey
+        };
+
+        if (request.ApplicationId != null) body["applicationId"] = request.ApplicationId;
+
+        var endpointIds = new List<string>();
+        if (request.EndpointIds != null) endpointIds.AddRange(request.EndpointIds);
+        if (request.EndpointId != null) endpointIds.Add(request.EndpointId);
+        endpointIds = endpointIds.Distinct(StringComparer.Ordinal).ToList();
+
+        if (endpointIds.Count > 0)
+        {
+            body["endpointIds"] = endpointIds;
+            // Older API deployments read only the singular field and ignore the plural one.
+            if (endpointIds.Count == 1) body["endpointId"] = endpointIds[0];
+        }
+
+        if (request.Labels != null) body["labels"] = request.Labels;
+        if (request.Metadata != null) body["metadata"] = request.Metadata;
+        if (request.Priority != null) body["priority"] = request.Priority.Value;
+
+        return body;
     }
 
     /// <summary>
@@ -118,7 +162,8 @@ public class MessagesResource : BaseResource
     }
 
     /// <summary>
-    /// Export outbound messages (events or messages) as JSON or CSV.
+    /// Export outbound events or messages. Returns the response body as is: a CSV document, or a
+    /// JSON document (<c>{ exportedAt, organization, count, events | messages }</c>).
     /// </summary>
     public async Task<string> ExportAsync(
         string organizationId,
@@ -145,7 +190,7 @@ public class MessagesResource : BaseResource
         if (eventType != null) queryParams["eventType"] = eventType;
         if (applicationId != null) queryParams["applicationId"] = applicationId;
 
-        // Export returns raw CSV or JSON string
+        // A string response type returns the raw body rather than parsing it as JSON.
         return await ApiClient.RequestAsync<string>(
             HttpMethod.Get,
             $"/api/organizations/{Uri.EscapeDataString(organizationId)}/outbound-messages/export",
