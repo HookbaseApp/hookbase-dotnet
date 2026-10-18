@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Hookbase.Http;
 using Hookbase.Models.Common;
 using Hookbase.Models.Messages;
@@ -51,23 +52,28 @@ public class DlqResource : BaseResource
     /// </summary>
     public async Task<DlqStats> GetStatsAsync(CancellationToken cancellationToken = default)
     {
-        return await ApiClient.RequestAsync<DlqStats>(
+        var response = await ApiClient.RequestAsync<DlqStatsResponse>(
             HttpMethod.Get,
             "/api/outbound-messages/dlq/stats",
             cancellationToken: cancellationToken
         );
+
+        return response.Data;
     }
 
     /// <summary>
-    /// Retry a message from the DLQ.
+    /// Retry a message from the DLQ. The retry is a new message; its id is
+    /// <see cref="ReplayMessageResponse.NewMessageId"/>.
     /// </summary>
-    public async Task RetryAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<ReplayMessageResponse> RetryAsync(string id, CancellationToken cancellationToken = default)
     {
-        await ApiClient.RequestAsync<SuccessResponse>(
+        var response = await ApiClient.RequestAsync<RetryResponse>(
             HttpMethod.Post,
             $"/api/outbound-messages/dlq/{Uri.EscapeDataString(id)}/retry",
             cancellationToken: cancellationToken
         );
+
+        return response.Data;
     }
 
     /// <summary>
@@ -93,13 +99,56 @@ public class DlqResource : BaseResource
     {
         public bool Success { get; init; }
     }
+
+    private record DlqStatsResponse
+    {
+        public required DlqStats Data { get; init; }
+    }
+
+    private record RetryResponse
+    {
+        public required ReplayMessageResponse Data { get; init; }
+    }
 }
 
 /// <summary>
-/// DLQ statistics.
+/// DLQ statistics (<c>GET /outbound-messages/dlq/stats</c>).
 /// </summary>
 public record DlqStats
 {
-    public int TotalMessages { get; init; }
+    /// <summary>Messages currently in the DLQ.</summary>
+    public int Total { get; init; }
+
+    /// <summary>Counts keyed by DLQ reason (<c>unknown</c> when none was recorded).</summary>
+    public Dictionary<string, int>? ByReason { get; init; }
+
+    /// <summary>The ten endpoints with the most DLQ messages.</summary>
+    public List<DlqEndpointCount>? ByEndpoint { get; init; }
+
+    /// <summary>The ten event types with the most DLQ messages.</summary>
+    public List<DlqEventTypeCount>? ByEventType { get; init; }
+
+    /// <summary>Same as <see cref="Total"/>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is total. Use Total.")]
+    public int TotalMessages => Total;
+
+    [JsonIgnore]
+    [Obsolete("The API does not return per-application counts; this is always null. Use ByEndpoint or ByEventType.")]
     public Dictionary<string, int>? MessagesByApplication { get; init; }
+}
+
+/// <summary>DLQ message count for one endpoint.</summary>
+public record DlqEndpointCount
+{
+    public string? EndpointId { get; init; }
+    public string? EndpointUrl { get; init; }
+    public int Count { get; init; }
+}
+
+/// <summary>DLQ message count for one event type.</summary>
+public record DlqEventTypeCount
+{
+    public string? EventType { get; init; }
+    public int Count { get; init; }
 }

@@ -63,7 +63,8 @@ public class ApplicationsResource : BaseResource
             {
                 yield return item;
             }
-            hasMore = result.HasMore;
+            // The cursor is opaque: pass it back as is. Stop if a page claims more without one.
+            hasMore = result.HasMore && !string.IsNullOrEmpty(result.NextCursor);
             cursor = result.NextCursor;
         }
     }

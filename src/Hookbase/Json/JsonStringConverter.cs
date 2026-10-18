@@ -103,3 +103,31 @@ public class JsonStringStringDictionaryConverter : JsonConverter<Dictionary<stri
         JsonSerializer.Serialize(writer, value, options);
     }
 }
+
+/// <summary>
+/// Reads any JSON value into a string: a JSON string as its text, anything else (an object, an
+/// array, a number) as its raw JSON. For fields the API stores as JSONB but takes as a JSON-encoded
+/// string on input, such as an event type's <c>examplePayload</c>.
+/// </summary>
+public class JsonRawStringConverter : JsonConverter<string?>
+{
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
+        if (reader.TokenType == JsonTokenType.String)
+            return reader.GetString();
+
+        using var doc = JsonDocument.ParseValue(ref reader);
+        return doc.RootElement.GetRawText();
+    }
+
+    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+    {
+        if (value == null)
+            writer.WriteNullValue();
+        else
+            writer.WriteStringValue(value);
+    }
+}

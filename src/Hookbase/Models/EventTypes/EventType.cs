@@ -16,6 +16,12 @@ public record EventType
     public string? Category { get; init; }
     public object? Schema { get; init; }
     public int? SchemaVersion { get; init; }
+
+    /// <summary>
+    /// The example payload as JSON text. The API returns it as a JSON value; it is kept here as its
+    /// raw JSON so that reading an event type with an example payload does not fail.
+    /// </summary>
+    [JsonConverter(typeof(JsonRawStringConverter))]
     public string? ExamplePayload { get; init; }
     public string? DocumentationUrl { get; init; }
     public int? DefaultPriority { get; init; }

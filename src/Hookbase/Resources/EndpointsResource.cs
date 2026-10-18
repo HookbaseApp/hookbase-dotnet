@@ -126,17 +126,27 @@ public class EndpointsResource : BaseResource
     }
 
     /// <summary>
-    /// Get statistics for an endpoint.
+    /// Get delivery statistics for an endpoint.
     /// </summary>
+    /// <remarks>
+    /// The API has no <c>/webhook-endpoints/:id/stats</c> route, so this called a URL that always
+    /// returned 404. The counters live on the endpoint itself; this reads the endpoint and returns them.
+    /// </remarks>
     public async Task<EndpointStats> GetStatsAsync(
         string id,
         CancellationToken cancellationToken = default)
     {
-        return await ApiClient.RequestAsync<EndpointStats>(
-            HttpMethod.Get,
-            $"/api/webhook-endpoints/{Uri.EscapeDataString(id)}/stats",
-            cancellationToken: cancellationToken
-        );
+        var endpoint = await GetAsync(id, cancellationToken);
+
+        return new EndpointStats
+        {
+            TotalMessages = endpoint.TotalMessages,
+            TotalSuccesses = endpoint.TotalSuccesses,
+            TotalFailures = endpoint.TotalFailures,
+            SuccessRate = endpoint.TotalMessages == 0 ? 0 : (double)endpoint.TotalSuccesses / endpoint.TotalMessages,
+            AverageLatency = endpoint.AvgResponseTimeMs ?? 0,
+            RecentFailures = endpoint.CircuitFailureCount ?? 0
+        };
     }
 
     // Internal response types

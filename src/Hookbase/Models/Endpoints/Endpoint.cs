@@ -308,14 +308,20 @@ public record RotateSecretResult
 }
 
 /// <summary>
-/// Endpoint statistics.
+/// Endpoint statistics, taken from the endpoint's own counters.
 /// </summary>
 public record EndpointStats
 {
     public int TotalMessages { get; init; }
     public int TotalSuccesses { get; init; }
     public int TotalFailures { get; init; }
+
+    /// <summary><see cref="TotalSuccesses"/> divided by <see cref="TotalMessages"/> (0 to 1).</summary>
     public double SuccessRate { get; init; }
+
+    /// <summary>Average response time in milliseconds (<c>avgResponseTimeMs</c>).</summary>
     public double AverageLatency { get; init; }
+
+    /// <summary>Consecutive failures counted by the circuit breaker (<c>circuitFailureCount</c>).</summary>
     public int RecentFailures { get; init; }
 }
