@@ -330,6 +330,9 @@ public record ImportSourcesResult
 {
     public bool Success { get; init; }
 
+    /// <summary>True on a validate-only run.</summary>
+    public bool ValidateOnly { get; init; }
+
     /// <summary>Validate-only: whether no item has status <c>error</c>; null on an applied import.</summary>
     public bool? Valid { get; init; }
 
