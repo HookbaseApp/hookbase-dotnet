@@ -244,6 +244,37 @@ public class InboundContractTests
     }
 
     [Fact]
+    public async Task DeliveriesList_PendingDeliveryWithNullAttemptCountDecodes()
+    {
+        // A pending delivery the worker has not counted yet comes back with attemptCount null.
+        var (client, handler) = Create();
+        var pending = DeliveryRow.Replace("\"attemptCount\":3,\"maxAttempts\":5", "\"attemptCount\":null,\"maxAttempts\":null");
+        handler.Respond("GET /api/deliveries", $$"""{"deliveries":[{{pending}}],"limit":20,"offset":0}""");
+
+        var page = await client.Deliveries.ListAsync();
+
+        var d = Assert.Single(page.Data);
+        Assert.Null(d.AttemptCount);
+        Assert.Null(d.MaxAttempts);
+#pragma warning disable CS0618
+        Assert.Equal(0, d.Attempts);
+#pragma warning restore CS0618
+    }
+
+    [Fact]
+    public async Task DeliveriesList_HasMoreOnAFullPageOnly()
+    {
+        var (client, handler) = Create();
+        handler.Respond("GET /api/deliveries", $$"""{"deliveries":[{{DeliveryRow}},{{DeliveryRow}}],"limit":2,"offset":0}""");
+        var full = await client.Deliveries.ListAsync(limit: 2);
+        Assert.True(full.HasMore);
+
+        handler.Respond("GET /api/deliveries", $$"""{"deliveries":[{{DeliveryRow}}],"limit":2,"offset":2}""");
+        var last = await client.Deliveries.ListAsync(limit: 2, offset: 2);
+        Assert.False(last.HasMore);
+    }
+
+    [Fact]
     public async Task DeliveriesGet_MapsDestinationUrl()
     {
         var (client, handler) = Create();

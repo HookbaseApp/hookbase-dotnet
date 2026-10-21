@@ -25,8 +25,10 @@ public record Delivery
     /// </summary>
     public string? Status { get; init; }
 
-    public int AttemptCount { get; init; }
-    public int MaxAttempts { get; init; }
+    /// <summary>Attempts made so far; null for a delivery that has not been counted yet.</summary>
+    public int? AttemptCount { get; init; }
+
+    public int? MaxAttempts { get; init; }
     public string? NextRetryAt { get; init; }
 
     /// <summary>The destination's HTTP status, or null when no response came back.</summary>
@@ -58,7 +60,7 @@ public record Delivery
     /// <summary>Same as <see cref="AttemptCount"/>.</summary>
     [JsonIgnore]
     [Obsolete("The API field is attemptCount. Use AttemptCount.")]
-    public int Attempts => AttemptCount;
+    public int Attempts => AttemptCount ?? 0;
 
     /// <summary>Same as <see cref="ErrorMessage"/>.</summary>
     [JsonIgnore]

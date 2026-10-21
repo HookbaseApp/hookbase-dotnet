@@ -48,7 +48,9 @@ public class DeliveriesResource : BaseResource
         return new OffsetPage<Delivery>
         {
             Data = response.Deliveries,
-            Total = response.Deliveries.Count, // API doesn't return total for deliveries
+            // The API returns no total. A full page means there may be more, so count one past it
+            // (same as Events); a short page ends paging.
+            Total = response.Offset + response.Deliveries.Count + (response.Deliveries.Count >= pageSize ? 1 : 0),
             Page = response.Offset / pageSize + 1,
             PageSize = pageSize
         };
