@@ -43,12 +43,14 @@ public class DeliveriesResource : BaseResource
             cancellationToken: cancellationToken
         );
 
+        // The API caps limit at 100; page by the limit it actually applied, not the one requested.
+        var pageSize = response.Limit > 0 ? response.Limit : limit;
         return new OffsetPage<Delivery>
         {
             Data = response.Deliveries,
             Total = response.Deliveries.Count, // API doesn't return total for deliveries
-            Page = offset / limit + 1,
-            PageSize = limit
+            Page = response.Offset / pageSize + 1,
+            PageSize = pageSize
         };
     }
 

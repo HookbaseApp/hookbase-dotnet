@@ -67,6 +67,12 @@ public record TestTransformRequest
 public record TestTransformResult
 {
     public bool Success { get; init; }
+
+    /// <summary>The transform's output: parsed JSON for JSON output, otherwise a string.</summary>
     public object? Result { get; init; }
+
+    /// <summary>The output's content type.</summary>
+    public string? ContentType { get; init; }
+
     public string? Error { get; init; }
 }

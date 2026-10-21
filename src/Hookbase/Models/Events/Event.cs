@@ -27,38 +27,61 @@ public record InboundEvent
     public string? SourceName { get; init; }
     public string? SourceSlug { get; init; }
     public string? Status { get; init; }
+
+    /// <summary>The HTTP verb the webhook arrived with.</summary>
+    public string? Method { get; init; }
+
     public DeliveryStats? DeliveryStats { get; init; }
 }
 
 /// <summary>
-/// Detailed event information including payload and deliveries.
+/// Detailed event information including payload and deliveries (<c>GET /api/events/{id}</c>).
 /// </summary>
+/// <remarks>
+/// The API answers <c>{ event, payload, transient, deliveries }</c>; the SDK folds the payload,
+/// the transient flag and the deliveries into this one object.
+/// </remarks>
 public record EventDetail
 {
     public string? Id { get; init; }
+    public string? OrganizationId { get; init; }
     public string? SourceId { get; init; }
     public string? EventType { get; init; }
+    public string? PayloadHash { get; init; }
+    public string? PayloadKey { get; init; }
+
+    /// <summary>The stored payload; null once it has expired, or for a transient event.</summary>
     public object? Payload { get; init; }
+
+    /// <summary>
+    /// The source does not store payloads, so none can be shown or replayed (JSON <c>transient</c>).
+    /// </summary>
+    public bool Transient { get; init; }
+
     [JsonConverter(typeof(JsonStringStringDictionaryConverter))]
     public Dictionary<string, string>? Headers { get; init; }
     public object? SignatureValid { get; init; }
     public string? ReceivedAt { get; init; }
     public string? IpAddress { get; init; }
     public string? SourceName { get; init; }
+
+    /// <summary>As on <see cref="InboundEvent.Status"/>.</summary>
+    public string? Status { get; init; }
+
+    /// <summary>The HTTP verb the webhook arrived with.</summary>
+    public string? Method { get; init; }
+
+    public object? EncryptFields { get; init; }
+    public object? MaskFields { get; init; }
     public List<EventDeliveryInfo>? Deliveries { get; init; }
 }
 
-public record EventDeliveryInfo
+/// <summary>
+/// A delivery of an event, as listed on <see cref="EventDetail.Deliveries"/>. Same fields as
+/// <see cref="Hookbase.Models.Deliveries.Delivery"/>.
+/// </summary>
+public record EventDeliveryInfo : Hookbase.Models.Deliveries.Delivery
 {
-    public string? Id { get; init; }
-    public string? DestinationId { get; init; }
-    public string? DestinationName { get; init; }
-    public string? DestinationUrl { get; init; }
-    public string? Status { get; init; }
-    public int? StatusCode { get; init; }
-    public int Attempts { get; init; }
-    public string? CreatedAt { get; init; }
-    public string? CompletedAt { get; init; }
 }
 
 /// <summary>

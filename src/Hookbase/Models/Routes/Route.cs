@@ -180,9 +180,11 @@ public record ExportedRoute
     public string? Name { get; init; }
     public string? SourceSlug { get; init; }
     public string? DestinationSlug { get; init; }
-    public string? FilterName { get; init; }
-    public string? TransformName { get; init; }
-    public string? SchemaName { get; init; }
+    public string? FilterSlug { get; init; }
+    public string? TransformSlug { get; init; }
+    public string? SchemaSlug { get; init; }
+    public List<FilterCondition>? FilterConditions { get; init; }
+    public string? FilterLogic { get; init; }
     public int Priority { get; init; }
     public bool IsActive { get; init; }
     public bool NotifyOnFailure { get; init; }
@@ -195,6 +197,21 @@ public record ExportedRoute
     public int CircuitCooldownSeconds { get; init; }
     public int CircuitFailureThreshold { get; init; }
     public int CircuitProbeSuccessThreshold { get; init; }
+
+    /// <summary>Same as <see cref="FilterSlug"/>; a value set here is sent as <c>filterSlug</c>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is filterSlug. Use FilterSlug.")]
+    public string? FilterName { get => FilterSlug; init => FilterSlug = value; }
+
+    /// <summary>Same as <see cref="TransformSlug"/>; a value set here is sent as <c>transformSlug</c>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is transformSlug. Use TransformSlug.")]
+    public string? TransformName { get => TransformSlug; init => TransformSlug = value; }
+
+    /// <summary>Same as <see cref="SchemaSlug"/>; a value set here is sent as <c>schemaSlug</c>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API field is schemaSlug. Use SchemaSlug.")]
+    public string? SchemaName { get => SchemaSlug; init => SchemaSlug = value; }
 }
 
 /// <summary>
@@ -210,9 +227,17 @@ public record ImportRoutesRequest
 /// <summary>
 /// Import routes result.
 /// </summary>
+/// <remarks>
+/// Applied: <c>Imported</c> / <c>Skipped</c> (route names), <c>Errors</c> and <c>Summary</c>
+/// (<c>Total</c>, <c>Imported</c>, <c>Skipped</c>, <c>Errors</c>). With <c>ValidateOnly</c>:
+/// <c>ValidationResults</c> and <c>Summary</c> (<c>Total</c>, <c>Valid</c>, <c>Skipped</c>,
+/// <c>Overwrite</c>, <c>Errors</c>).
+/// </remarks>
 public record ImportRoutesResult
 {
     public bool Success { get; init; }
+    public bool ValidateOnly { get; init; }
+    public List<Hookbase.Models.Common.ImportValidationResult>? ValidationResults { get; init; }
     public List<string>? Imported { get; init; }
     public List<string>? Skipped { get; init; }
     public List<ImportError>? Errors { get; init; }
@@ -231,6 +256,12 @@ public record ImportSummary
     public int Imported { get; init; }
     public int Skipped { get; init; }
     public int Errors { get; init; }
+
+    /// <summary>Validate-only: routes that would be created.</summary>
+    public int? Valid { get; init; }
+
+    /// <summary>Validate-only: routes that would be overwritten.</summary>
+    public int? Overwrite { get; init; }
 }
 
 /// <summary>

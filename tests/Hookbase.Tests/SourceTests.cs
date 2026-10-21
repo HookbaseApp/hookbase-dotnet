@@ -251,7 +251,7 @@ public class SourceTests
             ["GET /api/events"] = (HttpStatusCode.NotFound, """{"error":"Source not found"}""")
         });
 
-        await Assert.ThrowsAsync<NotFoundException>(() => client.Events.ListAsync(sourceId: "my-slug"));
+        await Assert.ThrowsAsync<NotFoundException>(() => client.Events.ListPageAsync(sourceId: "my-slug"));
         Assert.Contains("sourceId=my-slug", handler.Requests.Single().Query);
     }
 
