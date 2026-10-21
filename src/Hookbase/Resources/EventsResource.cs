@@ -15,26 +15,27 @@ public class EventsResource : BaseResource
     }
 
     /// <summary>
-    /// List all events with offset-based pagination.
-    /// API uses limit/offset (not page/pageSize).
+    /// One page of events, newest first. Pass the returned <see cref="CursorPage{T}.NextCursor"/>
+    /// back as <paramref name="cursor"/> for the next page.
     /// </summary>
     /// <remarks>
+    /// The API is keyset-paginated and caps <paramref name="limit"/> at 100.
     /// <paramref name="sourceId"/> takes a source ID or slug. An unknown one throws
     /// <see cref="Hookbase.Exceptions.NotFoundException"/> rather than returning an empty page.
     /// </remarks>
-    public async Task<OffsetPage<InboundEvent>> ListAsync(
-        int limit = 20,
-        int offset = 0,
+    public async Task<CursorPage<InboundEvent>> ListPageAsync(
+        int limit = 50,
+        string? cursor = null,
         string? sourceId = null,
         InboundEventStatus? status = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new Dictionary<string, string>
         {
-            ["limit"] = limit.ToString(),
-            ["offset"] = offset.ToString()
+            ["limit"] = limit.ToString()
         };
 
+        if (cursor != null) queryParams["cursor"] = cursor;
         if (sourceId != null) queryParams["sourceId"] = sourceId;
         if (status.HasValue) queryParams["status"] = status.Value.ToString().ToLower();
 
@@ -45,17 +46,92 @@ public class EventsResource : BaseResource
             cancellationToken: cancellationToken
         );
 
-        return new OffsetPage<InboundEvent>
+        return new CursorPage<InboundEvent>
         {
             Data = response.Events,
-            Total = response.Total,
+            HasMore = response.HasMore && response.NextCursor != null,
+            NextCursor = response.NextCursor
+        };
+    }
+
+    /// <summary>
+    /// Iterate through all matching events, newest first, following the API's cursor.
+    /// </summary>
+    public async IAsyncEnumerable<InboundEvent> ListAllAsync(
+        string? sourceId = null,
+        InboundEventStatus? status = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        string? cursor = null;
+
+        while (true)
+        {
+            var page = await ListPageAsync(100, cursor, sourceId, status, cancellationToken);
+            foreach (var item in page.Data)
+            {
+                yield return item;
+            }
+            if (!page.HasMore || page.Data.Count == 0) yield break;
+            cursor = page.NextCursor;
+        }
+    }
+
+    /// <summary>
+    /// List events with offset-style paging.
+    /// </summary>
+    /// <remarks>
+    /// The API is cursor-paginated and ignores <c>offset</c>, so a non-zero
+    /// <paramref name="offset"/> is reached by walking the cursor from the first event (one
+    /// request per 100 events skipped). <see cref="OffsetPage{T}.Total"/> is not a real total: the
+    /// API does not count events by default, so it is set just high enough for
+    /// <see cref="OffsetPage{T}.HasMore"/> to be correct.
+    /// <paramref name="sourceId"/> takes a source ID or slug. An unknown one throws
+    /// <see cref="Hookbase.Exceptions.NotFoundException"/> rather than returning an empty page.
+    /// </remarks>
+    [Obsolete("The events API is cursor-paginated. Use ListPageAsync with a cursor, or ListAllAsync.")]
+    public async Task<OffsetPage<InboundEvent>> ListAsync(
+        int limit = 20,
+        int offset = 0,
+        string? sourceId = null,
+        InboundEventStatus? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        offset = Math.Max(offset, 0);
+
+        string? cursor = null;
+        var skip = offset;
+        while (skip > 0)
+        {
+            var skipped = await ListPageAsync(Math.Min(skip, 100), cursor, sourceId, status, cancellationToken);
+            skip -= skipped.Data.Count;
+            if (!skipped.HasMore || skipped.Data.Count == 0)
+            {
+                return new OffsetPage<InboundEvent>
+                {
+                    Data = new List<InboundEvent>(),
+                    Total = offset - skip,
+                    Page = offset / limit + 1,
+                    PageSize = limit
+                };
+            }
+            cursor = skipped.NextCursor;
+        }
+
+        var page = await ListPageAsync(limit, cursor, sourceId, status, cancellationToken);
+
+        return new OffsetPage<InboundEvent>
+        {
+            Data = page.Data,
+            // Page * PageSize == offset + limit for aligned offsets, so one past it means "more".
+            Total = offset + page.Data.Count + (page.HasMore ? 1 : 0),
             Page = offset / limit + 1,
             PageSize = limit
         };
     }
 
     /// <summary>
-    /// Get detailed information about an event.
+    /// Get detailed information about an event, with its payload and deliveries.
     /// </summary>
     public async Task<EventDetail> GetAsync(string id, CancellationToken cancellationToken = default)
     {
@@ -65,7 +141,13 @@ public class EventsResource : BaseResource
             cancellationToken: cancellationToken
         );
 
-        return response.Event;
+        // The API returns { event, payload, transient, deliveries }; fold them into one object.
+        return response.Event with
+        {
+            Payload = response.Payload,
+            Transient = response.Transient,
+            Deliveries = response.Deliveries ?? new List<EventDeliveryInfo>()
+        };
     }
 
     /// <summary>
@@ -84,13 +166,17 @@ public class EventsResource : BaseResource
     private record ListEventsResponse
     {
         public required List<InboundEvent> Events { get; init; }
-        public int Total { get; init; }
+        public int? Total { get; init; }
         public int Limit { get; init; }
-        public int Offset { get; init; }
+        public bool HasMore { get; init; }
+        public string? NextCursor { get; init; }
     }
 
     private record GetEventResponse
     {
         public required EventDetail Event { get; init; }
+        public object? Payload { get; init; }
+        public bool Transient { get; init; }
+        public List<EventDeliveryInfo>? Deliveries { get; init; }
     }
 }

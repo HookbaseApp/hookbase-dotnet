@@ -320,11 +320,39 @@ public record PendingVerification
 /// <summary>
 /// Result of importing sources from a file.
 /// </summary>
+/// <remarks>
+/// Same shape as a destination import. Applied: <c>Success</c>, <c>Summary</c> (<c>Imported</c>,
+/// <c>Skipped</c>, <c>Overwritten</c>, <c>Failed</c>) and <c>Details</c>. With
+/// <c>validateOnly</c>: <c>Valid</c>, <c>ValidationResults</c> and <c>Summary</c>
+/// (<c>Total</c>, <c>ToCreate</c>, <c>ToOverwrite</c>, <c>ToSkip</c>, <c>Errors</c>).
+/// </remarks>
 public record ImportSourcesResult
 {
-    public int Imported { get; init; }
-    public int Skipped { get; init; }
-    public List<string>? Errors { get; init; }
+    public bool Success { get; init; }
+
+    /// <summary>Validate-only: whether no item has status <c>error</c>; null on an applied import.</summary>
+    public bool? Valid { get; init; }
+
+    public List<Hookbase.Models.Common.ImportValidationResult>? ValidationResults { get; init; }
+    public Hookbase.Models.Destinations.ImportSummary? Summary { get; init; }
+    public Hookbase.Models.Destinations.ImportDetails? Details { get; init; }
+
+    /// <summary>Same as <c>Summary.Imported</c>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API returns counts under summary. Use Summary.Imported.")]
+    public int Imported => Summary?.Imported ?? 0;
+
+    /// <summary>Same as <c>Summary.Skipped</c>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API returns counts under summary. Use Summary.Skipped.")]
+    public int Skipped => Summary?.Skipped ?? 0;
+
+    /// <summary>The failed items from <c>Details.Failed</c>, as <c>"name: error"</c>.</summary>
+    [JsonIgnore]
+    [Obsolete("The API returns failures under details.failed. Use Details.Failed.")]
+    public List<string>? Errors => Details?.Failed?
+        .Select(f => $"{f.GetValueOrDefault("name")}: {f.GetValueOrDefault("error")}")
+        .ToList();
 }
 
 /// <summary>

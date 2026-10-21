@@ -174,18 +174,22 @@ public class RoutesResource : BaseResource
     }
 
     /// <summary>
-    /// Update circuit breaker configuration for a route.
+    /// Update circuit breaker configuration for a route, and return the updated route.
     /// </summary>
+    /// <remarks>
+    /// The API answers the update with <c>{ success }</c> only, so the route is read back with a
+    /// second request.
+    /// </remarks>
     public async Task<Route> UpdateCircuitConfigAsync(string id, UpdateCircuitConfigRequest request, CancellationToken cancellationToken = default)
     {
-        var response = await ApiClient.RequestAsync<GetRouteResponse>(
+        await ApiClient.RequestAsync<SuccessResponse>(
             HttpMethod.Patch,
             $"/api/routes/{Uri.EscapeDataString(id)}/circuit-config",
             body: request,
             cancellationToken: cancellationToken
         );
 
-        return response.Route;
+        return await GetAsync(id, cancellationToken);
     }
 
     // Internal response types

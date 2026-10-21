@@ -274,21 +274,49 @@ public class SourcesResource : BaseResource
     }
 
     /// <summary>
+    /// Import sources from JSON, skipping any whose slug already exists.
+    /// </summary>
+    public Task<ImportSourcesResult> ImportAsync(
+        List<CreateSourceRequest> sources,
+        CancellationToken cancellationToken = default)
+    {
+        return ImportAsync(sources, "skip", null, cancellationToken);
+    }
+
+    /// <summary>
     /// Import sources from JSON.
     /// </summary>
+    /// <param name="sources">The sources to import.</param>
+    /// <param name="conflictStrategy">What to do when a slug already exists: <c>skip</c>, <c>rename</c> or <c>overwrite</c>.</param>
+    /// <param name="validateOnly">Report what would happen without importing anything.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<ImportSourcesResult> ImportAsync(
         List<CreateSourceRequest> sources,
+        string conflictStrategy,
+        bool? validateOnly = null,
         CancellationToken cancellationToken = default)
     {
         return await ApiClient.RequestAsync<ImportSourcesResult>(
             HttpMethod.Post,
             "/api/sources/import",
-            body: new { sources },
+            body: new ImportSourcesRequest
+            {
+                Sources = sources,
+                ConflictStrategy = conflictStrategy,
+                ValidateOnly = validateOnly
+            },
             cancellationToken: cancellationToken
         );
     }
 
-    // Internal response types
+    // Internal request/response types
+    private record ImportSourcesRequest
+    {
+        public required List<CreateSourceRequest> Sources { get; init; }
+        public required string ConflictStrategy { get; init; }
+        public bool? ValidateOnly { get; init; }
+    }
+
     private record ListSourcesResponse
     {
         public required List<Source> Sources { get; init; }

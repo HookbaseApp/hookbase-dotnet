@@ -449,19 +449,48 @@ public record ImportDestinationsRequest
 /// <summary>
 /// Result of importing destinations.
 /// </summary>
+/// <remarks>
+/// Applied: <c>Success</c>, <c>Summary</c> (<c>Imported</c>, <c>Skipped</c>, <c>Overwritten</c>,
+/// <c>Failed</c>) and <c>Details</c>. With <c>ValidateOnly</c>: <c>Valid</c>,
+/// <c>ValidationResults</c> and <c>Summary</c> (<c>Total</c>, <c>ToCreate</c>,
+/// <c>ToOverwrite</c>, <c>ToSkip</c>, <c>Errors</c>).
+/// </remarks>
 public record ImportDestinationsResult
 {
     public bool Success { get; init; }
+
+    /// <summary>Validate-only: whether no item has status <c>error</c>; null on an applied import.</summary>
+    public bool? Valid { get; init; }
+
+    public List<Hookbase.Models.Common.ImportValidationResult>? ValidationResults { get; init; }
     public ImportSummary? Summary { get; init; }
     public ImportDetails? Details { get; init; }
 }
 
+/// <summary>
+/// Counts from a source or destination import. Which are set depends on <c>validateOnly</c>.
+/// </summary>
 public record ImportSummary
 {
     public int Imported { get; init; }
     public int Skipped { get; init; }
     public int Overwritten { get; init; }
     public int Failed { get; init; }
+
+    /// <summary>Validate-only: items sent.</summary>
+    public int? Total { get; init; }
+
+    /// <summary>Validate-only: items that would be created.</summary>
+    public int? ToCreate { get; init; }
+
+    /// <summary>Validate-only: items that would be overwritten.</summary>
+    public int? ToOverwrite { get; init; }
+
+    /// <summary>Validate-only: items that would be skipped.</summary>
+    public int? ToSkip { get; init; }
+
+    /// <summary>Validate-only: items with errors.</summary>
+    public int? Errors { get; init; }
 }
 
 public record ImportDetails
@@ -469,6 +498,7 @@ public record ImportDetails
     public List<string>? Imported { get; init; }
     public List<string>? Skipped { get; init; }
     public List<string>? Overwritten { get; init; }
+    /// <summary>Each failed item as <c>{ "name", "error" }</c>.</summary>
     public List<Dictionary<string, string>>? Failed { get; init; }
 }
 
