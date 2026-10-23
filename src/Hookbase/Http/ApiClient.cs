@@ -161,9 +161,12 @@ public class ApiClient : IApiClient, IDisposable
 
                 // Check if we should retry. A 429 is rejected before the API does any work, so it
                 // is safe to repeat for any method; 5xx only when the request is retry-safe.
+                // A Retry-After longer than MaxRetryAfter (a quota window, or a far-off date) is
+                // thrown to the caller as a RateLimitException rather than waited out.
                 var statusCode = (int)response.StatusCode;
                 var retryable = statusCode == (int)HttpStatusCode.TooManyRequests
-                    || (canRetry && RetryableStatusCodes.Contains(statusCode));
+                    ? !(RetryAfterDelay(response) > MaxRetryAfter)
+                    : canRetry && RetryableStatusCodes.Contains(statusCode);
                 if (retryable && attempt < _maxRetries)
                 {
                     var delay = CalculateDelay(attempt, response);
@@ -326,6 +329,9 @@ public class ApiClient : IApiClient, IDisposable
     /// The wait a <c>Retry-After</c> header asks for, as delta-seconds or an HTTP-date
     /// (RFC 9110 10.2.3); null when there is none. A date in the past means no wait.
     /// </summary>
+    /// <summary>The longest <c>Retry-After</c> the client waits out before retrying a 429.</summary>
+    internal static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(60);
+
     private static TimeSpan? RetryAfterDelay(HttpResponseMessage? response)
     {
         var header = response?.Headers.RetryAfter;

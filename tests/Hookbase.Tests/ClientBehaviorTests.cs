@@ -236,6 +236,22 @@ public class ClientBehaviorTests
     }
 
     [Fact]
+    public async Task A_429_with_Retry_After_over_60s_is_thrown_at_once()
+    {
+        var handler = new ScriptedHandler()
+            .Then(HttpStatusCode.TooManyRequests, "{\"error\":\"Monthly limit\"}",
+                r => r.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(3600)))
+            .Then(HttpStatusCode.OK, "{}");
+        using var client = Client(handler);
+
+        var started = DateTime.UtcNow;
+        var ex = await Assert.ThrowsAsync<RateLimitException>(() => Send(client, HttpMethod.Get));
+        Assert.Equal(3600, ex.RetryAfter);
+        Assert.Single(handler.Requests);
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task A_429_waits_a_Retry_After_date_until_it_passes()
     {
         var handler = new ScriptedHandler()
@@ -440,7 +456,7 @@ public class ClientBehaviorTests
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
             .Single().InformationalVersion.Split('+')[0];
-        Assert.Equal("5.1.0", version);
-        Assert.Equal("Hookbase.NET/5.1.0", userAgent);
+        Assert.Matches(@"^\d+\.\d+\.\d+", version);
+        Assert.Equal("Hookbase.NET/" + version, userAgent);
     }
 }

@@ -486,7 +486,12 @@ await foreach (var app in client.Applications.ListAllAsync())
   its path, so a `BaseUrl` of `https://api.hookbase.app/api` must become `https://api.hookbase.app`.
 - **A bad `BaseUrl` throws `ArgumentException`** when the client is created, unless it is an
   absolute `http` or `https` URL.
-- **429 is retried for POSTs too**, including those without an idempotency key.
+- **429 is retried for POSTs too**, including those without an idempotency key. A `Retry-After`
+  over 60 seconds is no longer waited out: the `RateLimitException` is thrown at once with
+  `RetryAfter` set.
+- **`Endpoints.ListAsync(null)` and `Analytics.DashboardAsync(null)` no longer compile**: a lone
+  `null` is ambiguous with the new `EndpointListOptions` / `DashboardOptions` overloads. Call
+  `ListAsync()` / `DashboardAsync()`, or use named arguments.
 - **Timeouts and network failures** throw `HookbaseTimeoutException` and
   `HookbaseNetworkException`. Both derive from `HookbaseException`, so existing catch blocks still
   work. API errors gain `Code`.
@@ -564,7 +569,8 @@ Cancelling the `CancellationToken` you pass to a method throws `OperationCancele
 Failed requests are retried up to `MaxRetries` times (default 3) on timeouts, network errors, 429
 and 500/502/503/504, with exponential backoff and jitter (1, 2, 4 ... seconds, at most 10), or the
 `Retry-After` delay (seconds or an HTTP date) when the API sends one. A 429 without `Retry-After`
-backs off the same way. Other 4xx responses are never retried.
+backs off the same way, and a `Retry-After` over 60 seconds is thrown as a `RateLimitException`
+at once instead of being waited out. Other 4xx responses are never retried.
 
 A 429 is retried for every method, POST included, because the API rejects a rate-limited request
 before doing any work. A 5xx, network error or timeout may come after the API has already acted, so
