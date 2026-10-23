@@ -74,6 +74,10 @@ internal sealed class EndpointRequestPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? CircuitCooldownSeconds { get; set; }
 
+    [JsonPropertyName("signatureScheme")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SignatureScheme { get; set; }
+
     [JsonPropertyName("isDisabled")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsDisabled { get; set; }
@@ -100,7 +104,8 @@ internal sealed class EndpointRequestPayload
         UseStaticIp = request.UseStaticIp,
         CircuitFailureThreshold = request.CircuitFailureThreshold,
         CircuitSuccessThreshold = request.CircuitSuccessThreshold,
-        CircuitCooldownSeconds = request.CircuitCooldownSeconds
+        CircuitCooldownSeconds = request.CircuitCooldownSeconds,
+        SignatureScheme = request.SignatureScheme
     };
 
     internal static EndpointRequestPayload FromUpdate(UpdateEndpointRequest request) => new()
@@ -118,6 +123,7 @@ internal sealed class EndpointRequestPayload
         CircuitFailureThreshold = request.CircuitFailureThreshold,
         CircuitSuccessThreshold = request.CircuitSuccessThreshold,
         CircuitCooldownSeconds = request.CircuitCooldownSeconds,
+        SignatureScheme = request.SignatureScheme,
         IsDisabled = request.IsDisabled,
         DisabledReason = request.DisabledReason
     };
@@ -138,7 +144,8 @@ internal sealed class EndpointRequestPayload
         UseStaticIp = UseStaticIp,
         CircuitFailureThreshold = CircuitFailureThreshold,
         CircuitSuccessThreshold = CircuitSuccessThreshold,
-        CircuitCooldownSeconds = CircuitCooldownSeconds
+        CircuitCooldownSeconds = CircuitCooldownSeconds,
+        SignatureScheme = SignatureScheme
     };
 
     internal UpdateEndpointRequest ToUpdate() => new()
@@ -156,6 +163,7 @@ internal sealed class EndpointRequestPayload
         CircuitFailureThreshold = CircuitFailureThreshold,
         CircuitSuccessThreshold = CircuitSuccessThreshold,
         CircuitCooldownSeconds = CircuitCooldownSeconds,
+        SignatureScheme = SignatureScheme,
         IsDisabled = IsDisabled,
         DisabledReason = DisabledReason
     };

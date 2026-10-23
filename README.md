@@ -12,7 +12,7 @@ Official .NET SDK for [Hookbase](https://hookbase.app) - webhook relay platform 
 - **Automatic pagination** - Use `ListAllAsync()` to iterate through all resources
 - **Dual pagination support** - Offset-based (inbound) and cursor-based (outbound)
 - **Comprehensive error handling** - Typed exceptions for different HTTP status codes
-- **Webhook verification** - Built-in HMAC-SHA256 signature verification
+- **Webhook verification** - Built-in Standard Webhooks verification: HMAC-SHA256 (`v1`) and Ed25519 (`v1a`)
 - **Retry logic** - Exponential backoff with jitter for failed requests
 - **Full API coverage** - Support for all Hookbase API endpoints
 
@@ -300,6 +300,31 @@ if (verifier.VerifySignature(payload, headers))
 }
 ```
 
+Verify the body exactly as received: a body that was parsed and re-serialized no longer matches
+the signature.
+
+#### Ed25519 (`v1a`) endpoints
+
+An endpoint created with `SignatureScheme = "ed25519"` is signed with an Ed25519 private key that
+Hookbase keeps; you get only its public key (`whpk_...`). Pass that to the same verifier, which then
+checks the `v1a,` signatures instead of `v1,` ones, with the same timestamp tolerance:
+
+```csharp
+var endpoint = await client.Endpoints.CreateAsync(new CreateEndpointRequest
+{
+    ApplicationId = "app_123",
+    Url = "https://customer.example.com/webhooks",
+    SignatureScheme = "ed25519",
+});
+
+var verifier = new WebhookVerifier(endpoint.PublicKey!); // "whpk_..."
+var webhook = verifier.Verify<WebhookPayload>(payload, headers);
+```
+
+`RotateSecretAsync` on an Ed25519 endpoint returns a new `PublicKey` (and the old one as
+`PreviousPublicKey`) instead of a `Secret`. Until `PreviousSecretExpiresAt` every delivery carries
+signatures from both keys, so a receiver holding either one keeps verifying.
+
 ### Error Handling
 
 ```csharp
@@ -450,7 +475,7 @@ await client.Messages.SendAsync("org_123", new SendMessageRequest
 
 ### Utilities
 
-- ✅ **WebhookVerifier** - HMAC-SHA256 signature verification
+- ✅ **WebhookVerifier** - HMAC-SHA256 (`v1`) and Ed25519 (`v1a`) signature verification
 
 ## Requirements
 

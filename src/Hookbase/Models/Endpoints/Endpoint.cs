@@ -20,6 +20,18 @@ public record Endpoint
 
     public int? SecretVersion { get; init; }
 
+    /// <summary>
+    /// How deliveries are signed: <c>hmac-sha256</c> (Standard Webhooks <c>v1</c>, verified with the
+    /// <c>whsec_</c> secret) or <c>ed25519</c> (<c>v1a</c>, verified with <see cref="PublicKey"/>).
+    /// </summary>
+    public string? SignatureScheme { get; init; }
+
+    /// <summary>
+    /// The <c>whpk_</c> Ed25519 public key to verify <c>v1a</c> signatures with; null for an
+    /// <c>hmac-sha256</c> endpoint. Pass it to <see cref="Webhooks.WebhookVerifier"/>.
+    /// </summary>
+    public string? PublicKey { get; init; }
+
     [JsonConverter(typeof(BooleanConverter))]
     public bool IsDisabled { get; init; }
 
@@ -140,6 +152,14 @@ public record CreateEndpointRequest
     /// <summary>Deliver from Hookbase's static egress IPs.</summary>
     public bool? UseStaticIp { get; init; }
 
+    /// <summary>
+    /// Signing scheme: <c>"hmac-sha256"</c> (the API default; Standard Webhooks <c>v1</c>) or
+    /// <c>"ed25519"</c> (<c>v1a</c>; Hookbase generates the key pair, keeps the private key and
+    /// returns only <see cref="Endpoint.PublicKey"/>, so the response carries no <c>secret</c>).
+    /// On an update, switching scheme generates a fresh key and ends any rotation grace period.
+    /// </summary>
+    public string? SignatureScheme { get; init; }
+
     /// <summary>Consecutive failures before the circuit opens (1-100).</summary>
     public int? CircuitFailureThreshold { get; init; }
 
@@ -216,6 +236,14 @@ public record UpdateEndpointRequest
 
     /// <summary>Deliver from Hookbase's static egress IPs.</summary>
     public bool? UseStaticIp { get; init; }
+
+    /// <summary>
+    /// Signing scheme: <c>"hmac-sha256"</c> (the API default; Standard Webhooks <c>v1</c>) or
+    /// <c>"ed25519"</c> (<c>v1a</c>; Hookbase generates the key pair, keeps the private key and
+    /// returns only <see cref="Endpoint.PublicKey"/>, so the response carries no <c>secret</c>).
+    /// On an update, switching scheme generates a fresh key and ends any rotation grace period.
+    /// </summary>
+    public string? SignatureScheme { get; init; }
 
     /// <summary>Consecutive failures before the circuit opens (1-100).</summary>
     public int? CircuitFailureThreshold { get; init; }
@@ -300,9 +328,26 @@ public enum EndpointField
 /// <summary>
 /// Result of rotating an endpoint's signing secret.
 /// </summary>
+/// <remarks>
+/// An <c>hmac-sha256</c> endpoint gets a new <see cref="Secret"/>. An <c>ed25519</c> endpoint gets a
+/// new key pair instead: <see cref="Secret"/> is null and <see cref="PublicKey"/> /
+/// <see cref="PreviousPublicKey"/> are set. Until <see cref="PreviousSecretExpiresAt"/> deliveries
+/// carry signatures from both the previous and the new key, so either verifies.
+/// </remarks>
 public record RotateSecretResult
 {
+    /// <summary><c>hmac-sha256</c> or <c>ed25519</c>.</summary>
+    public string? SignatureScheme { get; init; }
+
+    /// <summary>The new <c>whsec_</c> signing secret, shown once; null for an <c>ed25519</c> endpoint.</summary>
     public string? Secret { get; init; }
+
+    /// <summary>The new <c>whpk_</c> public key (<c>ed25519</c> only).</summary>
+    public string? PublicKey { get; init; }
+
+    /// <summary>The <c>whpk_</c> public key being rotated out (<c>ed25519</c> only).</summary>
+    public string? PreviousPublicKey { get; init; }
+
     public string? PreviousSecretExpiresAt { get; init; }
     public int? SecretVersion { get; init; }
 }
