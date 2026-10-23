@@ -17,19 +17,30 @@ public class EndpointsResource : BaseResource
     /// <summary>
     /// List endpoints with cursor-based pagination.
     /// </summary>
-    public async Task<CursorPage<Endpoint>> ListAsync(
+    public Task<CursorPage<Endpoint>> ListAsync(
         string? applicationId = null,
         int limit = 50,
         string? cursor = null,
+        CancellationToken cancellationToken = default) =>
+        ListAsync(new EndpointListOptions { ApplicationId = applicationId, Limit = limit, Cursor = cursor }, cancellationToken);
+
+    /// <summary>
+    /// List endpoints with every filter the API supports.
+    /// </summary>
+    public async Task<CursorPage<Endpoint>> ListAsync(
+        EndpointListOptions options,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(options);
         var queryParams = new Dictionary<string, string>
         {
-            ["limit"] = limit.ToString()
+            ["limit"] = options.Limit.ToString()
         };
 
-        if (cursor != null) queryParams["cursor"] = cursor;
-        if (applicationId != null) queryParams["applicationId"] = applicationId;
+        if (options.Cursor != null) queryParams["cursor"] = options.Cursor;
+        if (options.ApplicationId != null) queryParams["applicationId"] = options.ApplicationId;
+        if (options.IsDisabled != null) queryParams["isDisabled"] = options.IsDisabled.Value ? "true" : "false";
+        if (options.CircuitState != null) queryParams["circuitState"] = options.CircuitState;
 
         var response = await ApiClient.RequestAsync<ListEndpointsResponse>(
             HttpMethod.Get,
@@ -114,6 +125,7 @@ public class EndpointsResource : BaseResource
     /// <summary>
     /// Rotate the signing secret for an endpoint.
     /// </summary>
+    /// <remarks>The previous secret keeps signing for the API's default grace period of one hour.</remarks>
     public async Task<RotateSecretResult> RotateSecretAsync(
         string id,
         CancellationToken cancellationToken = default)
@@ -121,6 +133,28 @@ public class EndpointsResource : BaseResource
         return await ApiClient.RequestAsync<RotateSecretResult>(
             HttpMethod.Post,
             $"/api/webhook-endpoints/{Uri.EscapeDataString(id)}/rotate-secret",
+            cancellationToken: cancellationToken
+        );
+    }
+
+    /// <summary>
+    /// Rotate the signing secret, keeping the previous one signing alongside it for
+    /// <paramref name="gracePeriodSeconds"/> (0 to 86400; 0 retires it at once).
+    /// </summary>
+    public async Task<RotateSecretResult> RotateSecretAsync(
+        string id,
+        int gracePeriodSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        if (gracePeriodSeconds is < 0 or > 86400)
+        {
+            throw new ArgumentOutOfRangeException(nameof(gracePeriodSeconds), gracePeriodSeconds, "Must be between 0 and 86400 seconds");
+        }
+
+        return await ApiClient.RequestAsync<RotateSecretResult>(
+            HttpMethod.Post,
+            $"/api/webhook-endpoints/{Uri.EscapeDataString(id)}/rotate-secret",
+            body: new { gracePeriodSeconds },
             cancellationToken: cancellationToken
         );
     }
@@ -170,4 +204,18 @@ public class EndpointsResource : BaseResource
     {
         public bool Success { get; init; }
     }
+}
+
+/// <summary>Filters for <see cref="EndpointsResource.ListAsync(EndpointListOptions, CancellationToken)"/>.</summary>
+public record EndpointListOptions
+{
+    public string? ApplicationId { get; init; }
+
+    /// <summary>Page size, at most 100. Default 50.</summary>
+    public int Limit { get; init; } = 50;
+    public string? Cursor { get; init; }
+    public bool? IsDisabled { get; init; }
+
+    /// <summary><c>closed</c>, <c>open</c> or <c>half_open</c>.</summary>
+    public string? CircuitState { get; init; }
 }

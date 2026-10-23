@@ -67,6 +67,15 @@ public record OutboundMessage
     /// <summary>The delivered payload, or null once retention has removed it.</summary>
     public JsonElement? Payload { get; init; }
 
+    /// <summary>W3C trace id of the send this message belongs to; each attempt's span is in it.</summary>
+    public string? TraceId { get; init; }
+
+    /// <summary>The event-type version the payload was published in; null when unversioned.</summary>
+    public string? EventVersion { get; init; }
+
+    /// <summary>The version the latest attempt delivered, after conversion to the subscription's pin.</summary>
+    public string? DeliveredEventVersion { get; init; }
+
     // DLQ-only (GET /outbound-messages/dlq/messages)
     public string? DlqReason { get; init; }
     public string? DlqMovedAt { get; init; }
@@ -140,6 +149,13 @@ public record SendMessageRequest
     public int? Priority { get; init; }
 
     /// <summary>
+    /// The event-type version the payload is in: <c>latest</c> (the default when unset) or a
+    /// version label. Endpoints pinned to another version get it converted where the event type
+    /// defines a conversion.
+    /// </summary>
+    public string? EventVersion { get; init; }
+
+    /// <summary>
     /// The API has no eventId input and silently dropped it. A value set here is now used as the
     /// idempotency key when <see cref="IdempotencyKey"/> is not set, which is what it was documented to do.
     /// </summary>
@@ -160,6 +176,9 @@ public record SendMessageResponse
 
     /// <summary>The endpoints the event was queued for.</summary>
     public List<SendMessageEndpoint>? Endpoints { get; init; }
+
+    /// <summary>The event-type version the event was published in; null when unversioned.</summary>
+    public string? EventVersion { get; init; }
 
     /// <summary>Same as <see cref="EventId"/>.</summary>
     [JsonIgnore]
@@ -235,4 +254,68 @@ public record ReplayMessageResponse
     public string? OriginalMessageId { get; init; }
     public string? NewMessageId { get; init; }
     public string? Status { get; init; }
+}
+
+/// <summary>
+/// Filters for <see cref="Resources.MessagesResource.ExportAsync(MessageExportOptions?, CancellationToken)"/>.
+/// </summary>
+public record MessageExportOptions
+{
+    /// <summary><c>json</c> (default) or <c>csv</c>.</summary>
+    public string Format { get; init; } = "json";
+
+    /// <summary><c>events</c> (default) or <c>messages</c>.</summary>
+    public string Type { get; init; } = "events";
+
+    /// <summary>ISO 8601 start of the range.</summary>
+    public string? StartDate { get; init; }
+
+    /// <summary>ISO 8601 end of the range.</summary>
+    public string? EndDate { get; init; }
+
+    public string? Status { get; init; }
+    public string? EventType { get; init; }
+    public string? ApplicationId { get; init; }
+
+    /// <summary>Maximum rows; default 10000.</summary>
+    public int Limit { get; init; } = 10000;
+}
+
+/// <summary>
+/// One delivery attempt of an outbound message (<c>GET /outbound-messages/:id/attempts</c>).
+/// </summary>
+public record MessageAttempt
+{
+    public string? Id { get; init; }
+    public string? MessageId { get; init; }
+    public int AttemptNumber { get; init; }
+
+    /// <summary>success, failed, timeout and so on; a string so a new status does not fail parsing.</summary>
+    public string? Status { get; init; }
+
+    public int? ResponseStatus { get; init; }
+
+    /// <summary>Response headers as the API stored them (a JSON object or JSON text).</summary>
+    public JsonElement? ResponseHeaders { get; init; }
+
+    public string? ResponseBody { get; init; }
+    public int? ResponseTimeMs { get; init; }
+    public int? TotalTimeMs { get; init; }
+    public string? ErrorType { get; init; }
+    public string? ErrorMessage { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? RequestUrl { get; init; }
+
+    /// <summary>Request headers as the API stored them (a JSON object or JSON text).</summary>
+    public JsonElement? RequestHeaders { get; init; }
+
+    public int? RequestBodySize { get; init; }
+
+    /// <summary>What started the attempt, for example <c>system</c> or <c>manual</c>.</summary>
+    public string? TriggeredBy { get; init; }
+
+    public string? TriggeredByUser { get; init; }
+    public string? CreatedAt { get; init; }
+    public string? CompletedAt { get; init; }
+    public string? EventVersion { get; init; }
 }
