@@ -130,6 +130,39 @@ public class WebhookVerifier
     /// <exception cref="WebhookVerificationException">Thrown if verification fails</exception>
     public T Verify<T>(string payload, IDictionary<string, string> headers, TimeSpan? tolerance = null)
     {
+        VerifyHeaders(payload, headers, tolerance);
+
+        // Deserialize payload
+        try
+        {
+            var result = JsonSerializer.Deserialize<T>(payload, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null)
+            {
+                throw new WebhookVerificationException("Failed to deserialize payload: result is null");
+            }
+
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            throw new WebhookVerificationException($"Failed to deserialize payload: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Checks the headers and signature of a webhook without deserializing the payload, so a body
+    /// that is not a JSON object (or not JSON at all) still verifies when its signature is valid.
+    /// </summary>
+    /// <exception cref="WebhookVerificationException">A header is missing or malformed, the
+    /// timestamp is outside <paramref name="tolerance"/>, or no signature matches.</exception>
+    private void VerifyHeaders(string payload, IDictionary<string, string> headers, TimeSpan? tolerance)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentNullException.ThrowIfNull(headers);
         tolerance ??= TimeSpan.FromMinutes(5);
 
         // Extract required headers (case-insensitive)
@@ -149,7 +182,11 @@ public class WebhookVerifier
         }
 
         // Parse and validate timestamp
-        if (!long.TryParse(timestampStr, out var timestamp))
+        // Unix seconds as plain digits. A value DateTimeOffset cannot represent is invalid too,
+        // rather than an ArgumentOutOfRangeException escaping VerifySignature.
+        if (!long.TryParse(timestampStr, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var timestamp)
+            || timestamp > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
         {
             throw new WebhookVerificationException("Invalid webhook-timestamp format");
         }
@@ -192,36 +229,18 @@ public class WebhookVerifier
         {
             throw new WebhookVerificationException("Signature verification failed");
         }
-
-        // Deserialize payload
-        try
-        {
-            var result = JsonSerializer.Deserialize<T>(payload, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (result == null)
-            {
-                throw new WebhookVerificationException("Failed to deserialize payload: result is null");
-            }
-
-            return result;
-        }
-        catch (JsonException ex)
-        {
-            throw new WebhookVerificationException($"Failed to deserialize payload: {ex.Message}", ex);
-        }
     }
 
     /// <summary>
-    /// Verifies a webhook signature without deserializing.
+    /// Verifies a webhook signature without deserializing: true when the headers are present, the
+    /// timestamp is within <paramref name="tolerance"/> and a signature matches, whatever the body
+    /// contains. Use <see cref="Verify{T}"/> for the reason a check failed.
     /// </summary>
     public bool VerifySignature(string payload, IDictionary<string, string> headers, TimeSpan? tolerance = null)
     {
         try
         {
-            Verify<Dictionary<string, object>>(payload, headers, tolerance);
+            VerifyHeaders(payload, headers, tolerance);
             return true;
         }
         catch (WebhookVerificationException)
