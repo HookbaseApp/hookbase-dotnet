@@ -122,6 +122,7 @@ public class CronJobsResource : BaseResource
     /// </summary>
     /// <param name="id">Cron job ID.</param>
     /// <param name="limit">How many to return (API default 20, maximum 100).</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
     public async Task<List<CronJobExecution>> ListExecutionsAsync(
         string id,
         int limit = 20,

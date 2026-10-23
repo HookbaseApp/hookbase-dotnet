@@ -14,7 +14,7 @@ Official .NET SDK for [Hookbase](https://hookbase.app) - webhook relay platform 
 - **Comprehensive error handling** - Typed exceptions for different HTTP status codes
 - **Webhook verification** - Built-in Standard Webhooks verification: HMAC-SHA256 (`v1`) and Ed25519 (`v1a`)
 - **Retry logic** - Exponential backoff with jitter for failed requests
-- **Full API coverage** - Support for all Hookbase API endpoints
+- **Broad API coverage** - Inbound and outbound resources; see [API Coverage](#api-coverage)
 
 ## Installation
 
@@ -51,9 +51,9 @@ var client = new HookbaseClient(new HookbaseClientOptions
 var sources = await client.Sources.ListAsync(page: 1, pageSize: 20);
 Console.WriteLine($"Total sources: {sources.Total}");
 
-foreach (var source in sources.Data)
+foreach (var s in sources.Data)
 {
-    Console.WriteLine($"{source.Name} ({source.Slug})");
+    Console.WriteLine($"{s.Name} ({s.Slug})");
 }
 
 // Create a new source
@@ -128,13 +128,10 @@ await foreach (var source in client.Sources.ListAllAsync())
     Console.WriteLine($"Processing: {source.Name}");
     // SDK automatically handles pagination
 }
-
-// With filters
-await foreach (var source in client.Sources.ListAllAsync(search: "stripe", isActive: true))
-{
-    Console.WriteLine($"Active source: {source.Name}");
-}
 ```
+
+The `search` and `isActive` parameters of `Sources.ListAsync` and `ListAllAsync` are sent, but
+the API does not filter on them yet, so filter the results yourself.
 
 ### Working with Applications (Outbound Webhooks)
 
@@ -142,9 +139,9 @@ await foreach (var source in client.Sources.ListAllAsync(search: "stripe", isAct
 // List applications (cursor-based pagination)
 var apps = await client.Applications.ListAsync(limit: 50);
 
-foreach (var app in apps.Data)
+foreach (var a in apps.Data)
 {
-    Console.WriteLine($"{app.Name} - {app.ExternalId}");
+    Console.WriteLine($"{a.Name} - {a.ExternalId}");
 }
 
 if (apps.HasMore)
@@ -176,8 +173,8 @@ var appOrCreate = await client.Applications.GetOrCreateAsync(new GetOrCreateAppl
 ### Sending Webhook Messages
 
 ```csharp
-// Send a message to all subscribed endpoints. The first argument is your organization id.
-var response = await client.Messages.SendAsync("org_123", new SendMessageRequest
+// Send a message to all subscribed endpoints in the API key's organization
+var response = await client.Messages.SendAsync(new SendMessageRequest
 {
     EventType = "payment.succeeded",
     Payload = new Dictionary<string, object>
@@ -193,13 +190,22 @@ Console.WriteLine($"Event ID: {response.EventId}");
 Console.WriteLine($"Queued for {response.MessagesQueued} endpoints");
 
 // Send to specific endpoints, or to one application's endpoints, only
-var targeted = await client.Messages.SendAsync("org_123", new SendMessageRequest
+var targeted = await client.Messages.SendAsync(new SendMessageRequest
 {
     EventType = "order.created",
     Payload = new Dictionary<string, object> { ["order_id"] = "ord_456" },
     EndpointIds = new List<string> { "ep_123", "ep_456" }
 });
+
+// Delivery attempts of one message, and the dead-letter queue
+var attempts = await client.Messages.ListAttemptsAsync("msg_123");
+var dead = await client.Dlq.ListAsync(new DlqListOptions { EndpointId = "ep_123" });
+var retried = await client.Dlq.RetryBulkAsync(dead.Data.Select(m => m.Id!));
 ```
+
+Every `Messages` method except `ListAttemptsAsync` also has an overload that takes an organization
+ID first (`SendAsync("org_123", request)`), which calls the organization-scoped routes. Before
+5.1.0 those were the only overloads.
 
 ### Managing Endpoints
 
@@ -237,8 +243,12 @@ await client.Endpoints.UpdateAsync("ep_123", new UpdateEndpointRequest
     Clear = { EndpointField.RetryDelays }
 });
 
-// Rotate secret
+// Rotate secret (the old one keeps signing for an hour, or gracePeriodSeconds: 0..86400)
 var newSecret = await client.Endpoints.RotateSecretAsync("ep_123");
+var slowRotate = await client.Endpoints.RotateSecretAsync("ep_123", gracePeriodSeconds: 86400);
+
+// Filtered list
+var openCircuits = await client.Endpoints.ListAsync(new EndpointListOptions { CircuitState = "open" });
 
 // Get statistics
 var stats = await client.Endpoints.GetStatsAsync("ep_123");
@@ -262,6 +272,7 @@ present so existing code compiles, but they are never sent:
 ### Webhook Signature Verification
 
 ```csharp
+using System.Text.Json;
 using Hookbase.Webhooks;
 
 // Initialize verifier with your signing secret
@@ -279,9 +290,9 @@ app.MapPost("/webhooks", async (HttpRequest request) =>
     try
     {
         // Verify and deserialize in one step
-        var webhook = verifier.Verify<WebhookPayload>(payload, headers);
+        var webhook = verifier.Verify<JsonElement>(payload, headers);
 
-        Console.WriteLine($"Event type: {webhook.EventType}");
+        Console.WriteLine($"Event type: {webhook.GetProperty("type").GetString()}");
         // Process webhook...
 
         return Results.Ok();
@@ -293,11 +304,8 @@ app.MapPost("/webhooks", async (HttpRequest request) =>
     }
 });
 
-// Or verify without deserializing
-if (verifier.VerifySignature(payload, headers))
-{
-    // Signature is valid
-}
+// To check only the signature, whatever the body (JSON or not), use
+// verifier.VerifySignature(payload, headers), which returns a bool.
 ```
 
 Verify the body exactly as received: a body that was parsed and re-serialized no longer matches
@@ -310,6 +318,8 @@ Hookbase keeps; you get only its public key (`whpk_...`). Pass that to the same 
 checks the `v1a,` signatures instead of `v1,` ones, with the same timestamp tolerance:
 
 ```csharp
+using System.Text.Json;
+
 var endpoint = await client.Endpoints.CreateAsync(new CreateEndpointRequest
 {
     ApplicationId = "app_123",
@@ -318,7 +328,7 @@ var endpoint = await client.Endpoints.CreateAsync(new CreateEndpointRequest
 });
 
 var verifier = new WebhookVerifier(endpoint.PublicKey!); // "whpk_..."
-var webhook = verifier.Verify<WebhookPayload>(payload, headers);
+var webhook = verifier.Verify<JsonElement>(payload, headers);
 ```
 
 `RotateSecretAsync` on an Ed25519 endpoint returns a new `PublicKey` (and the old one as
@@ -331,13 +341,15 @@ signatures from both keys, so a receiver holding either one keeps verifying.
 without a real delivery. It returns `webhook-id`, `webhook-timestamp` and `webhook-signature`:
 
 ```csharp
+using System.Text.Json;
+
 var verifier = new WebhookVerifier("whsec_your_secret_here");
 var payload = "{\"type\":\"order.created\"}";
 
 Dictionary<string, string> headers = verifier.GenerateTestHeaders(payload);
 // Optional: GenerateTestHeaders(payload, webhookId: "msg_test_1", timestamp: DateTimeOffset.UtcNow)
 
-verifier.Verify<WebhookPayload>(payload, headers); // passes
+verifier.Verify<JsonElement>(payload, headers); // passes
 ```
 
 Signing an Ed25519 (`v1a`) header needs the private key, which Hookbase never returns. For tests,
@@ -348,9 +360,11 @@ verifies the same headers. A verifier built from a `whpk_` public key cannot sig
 `GenerateTestHeaders` throws `InvalidOperationException`.
 
 ```csharp
+using System.Text.Json;
+
 var signer = new WebhookVerifier("whsk_..."); // your own test key
 var headers = signer.GenerateTestHeaders(payload); // "v1a,..." signature
-new WebhookVerifier("whpk_...").Verify<WebhookPayload>(payload, headers);
+new WebhookVerifier("whpk_...").Verify<JsonElement>(payload, headers);
 ```
 
 ### Error Handling
@@ -384,7 +398,16 @@ catch (RateLimitException ex)
 }
 catch (HookbaseApiException ex)
 {
-    Console.WriteLine($"API error {ex.StatusCode}: {ex.Message}");
+    // Code is the API's machine-readable code (FEATURE_DISABLED, LIMIT_EXCEEDED ...), or null
+    Console.WriteLine($"API error {ex.StatusCode} ({ex.Code}): {ex.Message}");
+}
+catch (HookbaseTimeoutException ex)
+{
+    Console.WriteLine($"Timed out: {ex.Message}");
+}
+catch (HookbaseNetworkException ex)
+{
+    Console.WriteLine($"Network failure: {ex.InnerException?.Message}");
 }
 catch (HookbaseException ex)
 {
@@ -402,14 +425,19 @@ catch (HookbaseException ex)
 | `NotFoundException` | 404 | Resource not found |
 | `ConflictException` | 409 | Resource conflict (duplicate) |
 | `RateLimitException` | 429 | Rate limit exceeded |
-| `HookbaseApiException` | Any other non-2xx | 5xx, and any 4xx without its own type above. The base class of all the API exceptions above |
+| `HookbaseApiException` | Any other non-2xx | 5xx, and any 4xx without its own type above. The base class of all the API exceptions above; carries `StatusCode`, `Code`, `RequestId` and `Details` |
+| `HookbaseTimeoutException` | - | The request ran past `Timeout` (after any retries); `InnerException` is the `TaskCanceledException` |
+| `HookbaseNetworkException` | - | DNS, connection or TLS failure (after any retries); `InnerException` is the `HttpRequestException` |
 | `WebhookVerificationException` | - | Webhook signature verification failed |
+
+All of these derive from `HookbaseException`.
 
 ## Pagination
 
 ### Offset-based (Inbound Resources)
 
-Sources, Destinations, Routes, Events, Deliveries, Transforms, Filters, Schemas:
+Sources, Destinations, Routes, Transforms, Filters and cron jobs take `page`/`pageSize`.
+Deliveries take `limit`/`offset`. Schemas return every schema in one page:
 
 ```csharp
 var page1 = await client.Sources.ListAsync(page: 1, pageSize: 20);
@@ -429,7 +457,8 @@ await foreach (var source in client.Sources.ListAllAsync())
 
 ### Cursor-based (Outbound Resources)
 
-Applications, Endpoints, EventTypes, Subscriptions, Messages:
+Applications, Endpoints, EventTypes, Subscriptions, Messages and the DLQ (events use
+`Events.ListPageAsync`, also cursor-based):
 
 ```csharp
 var page1 = await client.Applications.ListAsync(limit: 50);
@@ -458,6 +487,26 @@ await foreach (var app in client.Applications.ListAllAsync())
 - **A bad `BaseUrl` throws `ArgumentException`** when the client is created, unless it is an
   absolute `http` or `https` URL.
 - **429 is retried for POSTs too**, including those without an idempotency key.
+- **Timeouts and network failures** throw `HookbaseTimeoutException` and
+  `HookbaseNetworkException`. Both derive from `HookbaseException`, so existing catch blocks still
+  work. API errors gain `Code`.
+- **`Messages` no longer needs the organization ID.** New overloads without it resolve the
+  organization from the API key; the old ones still work.
+- **Destination types** are read and written under the API's names (`azure_blob`, `sqs`,
+  `eventbridge`, `servicebus`, `pubsub`, `oci_queue`). `AzureBlob` used to be sent as `azureBlob`,
+  and lists holding a queue destination failed to parse. An unknown type reads as `null`.
+- **Status filters** (`InboundEventStatus`, `DeliveryStatus`) gained the statuses the API uses
+  (`Pending`, `Partial`, `Duplicate`, `NoRoutes`; `FailedOver`, `SchemaFailed`, `Throttled`) and
+  are sent in snake_case. The members that matched nothing are marked `[Obsolete]`.
+- **Source changes in models that never worked.** `ValidateSchemaResult.Errors` is now a list of
+  `SchemaValidationError` (`Path`, `Message`); as `List<string>` it threw on any failed validation.
+  The flat `DashboardData` properties (`EventsReceived` ...) are now read-only and computed from
+  `Overview`; they were always 0 before.
+- **Calls that failed against the API now work:** `Transforms.UpdateAsync` (reads the transform
+  back after the update), `Schemas.ValidateAsync` (right route and body), route bulk delete and
+  update (send `ids`), `Tunnels.CreateAsync` (returns `AuthToken`, `TunnelUrl`, `WsUrl`),
+  `Filters.TestAsync` (`Matched`, `Results`, `Logic`), `Events.DebugAsync` (`CurlCommand`,
+  request headers, payload).
 
 ### Custom HttpClient and IHttpClientFactory
 
@@ -506,15 +555,16 @@ builder.Services.AddHttpClient("hookbase")
 ```
 
 Cancelling the `CancellationToken` you pass to a method throws `OperationCanceledException` (a
-`TaskCanceledException`), and the request is not retried. A timeout throws `HookbaseException`
-("Request failed: Request timed out after N seconds (HookbaseClientOptions.Timeout)") once the
-retries are used up.
+`TaskCanceledException`), and the request is not retried. A timeout throws
+`HookbaseTimeoutException` ("Request failed: Request timed out after N seconds
+(HookbaseClientOptions.Timeout)") once the retries are used up.
 
 ### Retries
 
 Failed requests are retried up to `MaxRetries` times (default 3) on timeouts, network errors, 429
-and 500/502/503/504, with exponential backoff and jitter, or the `Retry-After` delay when the API
-sends one. Other 4xx responses are never retried.
+and 500/502/503/504, with exponential backoff and jitter (1, 2, 4 ... seconds, at most 10), or the
+`Retry-After` delay (seconds or an HTTP date) when the API sends one. A 429 without `Retry-After`
+backs off the same way. Other 4xx responses are never retried.
 
 A 429 is retried for every method, POST included, because the API rejects a rate-limited request
 before doing any work. A 5xx, network error or timeout may come after the API has already acted, so
@@ -529,11 +579,11 @@ one generated per call), so sends are retried safely.
 // deprecated EventId, else one the SDK generates per call, so its own retries (on timeouts, 429
 // and 5xx) cannot duplicate a send. Other POST requests carry no key: they are retried on 429
 // only, because repeating them after a 5xx or timeout is not safe.
-await client.Messages.SendAsync("org_123", new SendMessageRequest
+await client.Messages.SendAsync(new SendMessageRequest
 {
     IdempotencyKey = "unique_event_id_123",
     EventType = "payment.succeeded",
-    Payload = data
+    Payload = new Dictionary<string, object> { ["paymentId"] = "pay_123" }
 });
 ```
 
@@ -552,9 +602,9 @@ await client.Messages.SendAsync("org_123", new SendMessageRequest
 | **Transforms** | List, get, create, update, delete, test |
 | **Filters** | List, get, create, update, delete, test |
 | **Schemas** | List, get, create, update, delete, validate |
-| **Tunnels** | List, get, create, bulk delete |
-| **CronJobs** | List, get, create, update, delete, trigger, list and create groups |
-| **Analytics** | Dashboard |
+| **Tunnels** | List, get, create (returns the one-time auth token), bulk delete |
+| **CronJobs** | List, get, create, update, delete, trigger, list executions, list and create groups |
+| **Analytics** | Dashboard (range, time zone, source or destination scope) |
 | **ApiKeys** | List |
 
 ### Outbound (Customer Webhooks)
@@ -562,12 +612,12 @@ await client.Messages.SendAsync("org_123", new SendMessageRequest
 | Resource | Methods |
 |----------|---------|
 | **Applications** | List (cursor and `ListAllAsync`), get, create, update, delete, get-or-create |
-| **Endpoints** | List, get, create, update, delete, rotate secret, stats |
-| **EventTypes** | List, get, create, update, delete |
+| **Endpoints** | List (with filters), get, create, update, delete, rotate secret (with grace period), stats |
+| **EventTypes** | List (with filters), get, create, update, delete |
 | **Subscriptions** | List, get, create, update, delete, bulk subscribe |
-| **Messages** | Send, list, get, replay, stats summary, export |
+| **Messages** | Send, list, get, list attempts, replay, stats summary, export |
 | **PortalTokens** | Create, list, revoke |
-| **DLQ** | List, stats, retry one message, delete one message |
+| **DLQ** | List (with filters), stats, retry and delete one message or in bulk |
 
 ### Utilities
 
@@ -595,9 +645,9 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - [Hookbase Documentation](https://www.hookbase.app/docs)
 - [API Reference](https://www.hookbase.app/docs/receive/api)
-- [GitHub Repository](https://github.com/hookbase/hookbase-dotnet)
+- [GitHub Repository](https://github.com/HookbaseApp/hookbase-dotnet)
 - [NuGet Package](https://www.nuget.org/packages/Hookbase)
-- [Report Issues](https://github.com/hookbase/hookbase-dotnet/issues)
+- [Report Issues](https://github.com/HookbaseApp/hookbase-dotnet/issues)
 
 ## Support
 
