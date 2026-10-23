@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -12,10 +13,21 @@ namespace Hookbase.Http;
 /// <summary>
 /// HTTP client implementation with retry logic and error handling.
 /// </summary>
+/// <remarks>
+/// A supplied <see cref="HttpClient"/> is never modified: its <c>BaseAddress</c>, <c>Timeout</c>
+/// and <c>DefaultRequestHeaders</c> stay as the caller set them. Every request is sent with an
+/// absolute URI built from the base URL, carries its own <c>Authorization</c> and
+/// <c>User-Agent</c> headers, and is bounded by the SDK timeout through a per-request
+/// cancellation token. That makes clients from <c>IHttpClientFactory</c>, and one client shared by
+/// several <see cref="ApiClient"/> instances with different API keys, safe to use.
+/// </remarks>
 public class ApiClient : IApiClient, IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly bool _disposeHttpClient;
+    private readonly string _baseUrl;
+    private readonly string _apiKey;
+    private readonly TimeSpan _timeout;
     private readonly int _maxRetries;
     private readonly Random _random = new();
 
@@ -56,8 +68,32 @@ public class ApiClient : IApiClient, IDisposable
         (int)HttpStatusCode.GatewayTimeout // 504
     };
 
+    /// <param name="apiKey">API key, sent as <c>Authorization: Bearer</c> on every request.</param>
+    /// <param name="baseUrl">Absolute base URL of the API, e.g. <c>https://api.hookbase.app</c>.</param>
+    /// <param name="timeout">Per-request timeout in seconds (each retry attempt gets its own).</param>
+    /// <param name="maxRetries">Maximum number of retries for a retryable failure.</param>
+    /// <param name="httpClient">Optional client to send through. It is not modified and not
+    /// disposed. When omitted, the SDK creates (and disposes) its own.</param>
     public ApiClient(string apiKey, string baseUrl, int timeout, int maxRetries, HttpClient? httpClient = null)
     {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new ArgumentException("API key is required", nameof(apiKey));
+        }
+
+        if (timeout <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be a positive number of seconds");
+        }
+
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+        {
+            throw new ArgumentException("Base URL must be an absolute URI", nameof(baseUrl));
+        }
+
+        _baseUrl = baseUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+        _apiKey = apiKey;
+        _timeout = TimeSpan.FromSeconds(timeout);
         _maxRetries = maxRetries;
 
         if (httpClient != null)
@@ -67,14 +103,11 @@ public class ApiClient : IApiClient, IDisposable
         }
         else
         {
-            _httpClient = new HttpClient();
+            // The SDK timeout is enforced per request, so the client's own (100 s default) must
+            // not cut a longer one short.
+            _httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
             _disposeHttpClient = true;
         }
-
-        _httpClient.BaseAddress = new Uri(baseUrl);
-        _httpClient.Timeout = TimeSpan.FromSeconds(timeout);
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
     }
 
     public async Task<TResponse> RequestAsync<TResponse>(
@@ -91,9 +124,20 @@ public class ApiClient : IApiClient, IDisposable
 
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // One timeout per attempt, linked to the caller's token so either can stop it.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(_timeout);
+            var attemptToken = timeoutCts.Token;
+
             try
             {
                 using var request = new HttpRequestMessage(method, url);
+
+                // Per request, never on DefaultRequestHeaders: the HttpClient may be shared.
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+                request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
 
                 if (idempotencyKey != null)
                 {
@@ -105,14 +149,14 @@ public class ApiClient : IApiClient, IDisposable
                     request.Content = JsonContent.Create(body, options: JsonOptions);
                 }
 
-                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                using var response = await _httpClient.SendAsync(request, attemptToken);
                 var requestId = response.Headers.TryGetValues("X-Request-Id", out var values)
                     ? values.FirstOrDefault()
                     : null;
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return await DeserializeResponse<TResponse>(response, cancellationToken);
+                    return await DeserializeResponse<TResponse>(response, attemptToken);
                 }
 
                 // Check if we should retry
@@ -126,11 +170,25 @@ public class ApiClient : IApiClient, IDisposable
                 }
 
                 // Not retrying, throw exception
-                await ThrowApiException(response, requestId, cancellationToken);
+                await ThrowApiException(response, requestId, attemptToken);
                 throw new InvalidOperationException("Should not reach here");
+            }
+            catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+            {
+                // The caller cancelled: surface that as a cancellation carrying the caller's token,
+                // never retry or wrap it.
+                throw new TaskCanceledException(ex.Message, ex, cancellationToken);
             }
             catch (Exception ex) when (ex is not HookbaseException)
             {
+                if (ex is OperationCanceledException && timeoutCts.IsCancellationRequested)
+                {
+                    // Our per-request timeout fired. Report it the way HttpClient.Timeout used to.
+                    ex = new TaskCanceledException(
+                        $"The request was canceled due to the configured HttpClient.Timeout of {_timeout.TotalSeconds} seconds elapsing.",
+                        new TimeoutException(ex.Message, ex));
+                }
+
                 if (canRetry && attempt < _maxRetries && ShouldRetryException(ex))
                 {
                     var delay = CalculateDelay(attempt, null);
@@ -295,18 +353,23 @@ public class ApiClient : IApiClient, IDisposable
         return ex is HttpRequestException or TaskCanceledException;
     }
 
-    private static string BuildUrl(string path, Dictionary<string, string>? queryParams)
+    private Uri BuildUrl(string path, Dictionary<string, string>? queryParams)
     {
-        if (queryParams == null || queryParams.Count == 0)
+        var url = _baseUrl + (path.StartsWith('/') ? path : "/" + path);
+
+        if (queryParams != null && queryParams.Count > 0)
         {
-            return path;
+            var queryString = string.Join("&", queryParams
+                .Where(kvp => !string.IsNullOrEmpty(kvp.Value))
+                .Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+
+            if (!string.IsNullOrEmpty(queryString))
+            {
+                url += "?" + queryString;
+            }
         }
 
-        var queryString = string.Join("&", queryParams
-            .Where(kvp => !string.IsNullOrEmpty(kvp.Value))
-            .Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
-
-        return string.IsNullOrEmpty(queryString) ? path : $"{path}?{queryString}";
+        return new Uri(url, UriKind.Absolute);
     }
 
     public void Dispose()

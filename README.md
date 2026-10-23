@@ -325,6 +325,34 @@ var webhook = verifier.Verify<WebhookPayload>(payload, headers);
 `PreviousPublicKey`) instead of a `Secret`. Until `PreviousSecretExpiresAt` every delivery carries
 signatures from both keys, so a receiver holding either one keeps verifying.
 
+#### Generating test headers
+
+`GenerateTestHeaders` signs a payload the way Hookbase does, so you can test your webhook handler
+without a real delivery. It returns `webhook-id`, `webhook-timestamp` and `webhook-signature`:
+
+```csharp
+var verifier = new WebhookVerifier("whsec_your_secret_here");
+var payload = "{\"type\":\"order.created\"}";
+
+Dictionary<string, string> headers = verifier.GenerateTestHeaders(payload);
+// Optional: GenerateTestHeaders(payload, webhookId: "msg_test_1", timestamp: DateTimeOffset.UtcNow)
+
+verifier.Verify<WebhookPayload>(payload, headers); // passes
+```
+
+Signing an Ed25519 (`v1a`) header needs the private key, which Hookbase never returns. For tests,
+use a key pair you generate yourself and pass the secret key as `whsk_` + base64 of the 32-byte
+seed followed by the 32-byte public key (the same layout the server and the Python and Java SDKs
+use). A `whsk_` verifier verifies with the public half and can sign; the matching `whpk_` key
+verifies the same headers. A verifier built from a `whpk_` public key cannot sign, so
+`GenerateTestHeaders` throws `InvalidOperationException`.
+
+```csharp
+var signer = new WebhookVerifier("whsk_..."); // your own test key
+var headers = signer.GenerateTestHeaders(payload); // "v1a,..." signature
+new WebhookVerifier("whpk_...").Verify<WebhookPayload>(payload, headers);
+```
+
 ### Error Handling
 
 ```csharp
@@ -374,7 +402,7 @@ catch (HookbaseException ex)
 | `NotFoundException` | 404 | Resource not found |
 | `ConflictException` | 409 | Resource conflict (duplicate) |
 | `RateLimitException` | 429 | Rate limit exceeded |
-| `HookbaseApiException` | 5xx | Server error |
+| `HookbaseApiException` | Any other non-2xx | 5xx, and any 4xx without its own type above. The base class of all the API exceptions above |
 | `WebhookVerificationException` | - | Webhook signature verification failed |
 
 ## Pagination
@@ -420,27 +448,73 @@ await foreach (var app in client.Applications.ListAllAsync())
 
 ## Advanced Usage
 
-### Custom HttpClient
+### Custom HttpClient and IHttpClientFactory
+
+You can pass your own `HttpClient`, for example to add a handler (logging, a proxy) or to use
+`IHttpClientFactory`. The SDK never modifies it: `BaseAddress`, `Timeout` and
+`DefaultRequestHeaders` stay as you set them, and the SDK never disposes it. Each request is sent
+to an absolute URL built from `BaseUrl`, with its own `Authorization` and `User-Agent` headers, so
+one `HttpClient` can be shared by several `HookbaseClient`s with different API keys.
+
+The request timeout is `HookbaseClientOptions.Timeout` (seconds, default 30), applied per attempt.
+The `HttpClient`'s own `Timeout` (100 seconds unless you change it) still applies too, and whichever
+is shorter wins, so raise both for long requests:
 
 ```csharp
-var httpClient = new HttpClient
-{
-    Timeout = TimeSpan.FromSeconds(120)
-};
+var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
 
 var client = new HookbaseClient(new HookbaseClientOptions
 {
     ApiKey = "whr_key",
-    HttpClient = httpClient // SDK will not dispose this
+    Timeout = 120,          // the SDK's per-request timeout
+    HttpClient = httpClient // not modified or disposed by the SDK
 });
 ```
+
+With `IHttpClientFactory` (ASP.NET Core):
+
+```csharp
+builder.Services.AddHttpClient("hookbase");
+builder.Services.AddSingleton(sp => new HookbaseClient(new HookbaseClientOptions
+{
+    ApiKey = builder.Configuration["Hookbase:ApiKey"]!,
+    HttpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("hookbase")
+}));
+```
+
+A singleton `HookbaseClient` keeps the `HttpClient` it was created with, so the factory's handler
+rotation does not reach it. If DNS changes matter, give the named client a primary handler that
+recycles connections:
+
+```csharp
+builder.Services.AddHttpClient("hookbase")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    });
+```
+
+Cancelling the `CancellationToken` you pass to a method throws `OperationCanceledException` (a
+`TaskCanceledException`), and the request is not retried. A timeout throws `HookbaseException`
+("Request failed: ...") once the retries are used up.
+
+### Retries
+
+Failed requests are retried up to `MaxRetries` times (default 3) on timeouts, network errors, 429
+and 500/502/503/504, with exponential backoff and jitter, or the `Retry-After` delay when the API
+sends one. Other 4xx responses are never retried.
+
+A POST is retried only when it carries an idempotency key. A POST without one is never retried,
+**not even on 429**, because the API may already have acted on it. `Messages.SendAsync` always
+sends a key (one is generated when you do not set `IdempotencyKey`), so sends are retried safely.
 
 ### Idempotency Keys
 
 ```csharp
 // A send with the same IdempotencyKey is not delivered twice. When you do not set one, the SDK
 // generates one per call, so its own retries (on timeouts, 429 and 5xx) cannot duplicate a send.
-// Other POST requests are not retried automatically, because repeating them is not safe.
+// Other POST requests carry no key and are never retried, even on 429, because repeating them
+// is not safe.
 await client.Messages.SendAsync("org_123", new SendMessageRequest
 {
     IdempotencyKey = "unique_event_id_123",
@@ -453,29 +527,38 @@ await client.Messages.SendAsync("org_123", new SendMessageRequest
 
 ### Inbound (Webhook Relay)
 
-- ✅ **Sources** - Fully implemented with pagination, export, import, bulk delete, verify tokens, pending verification
-- ✅ **Providers** - Public provider catalog: secret rules, event types, sample payloads
-- ⏳ **Destinations** - CRUD operations (stub implementation)
-- ⏳ **Routes** - CRUD, circuit breaker, bulk operations (stub)
-- ⏳ **Events** - List, get, debug (stub)
-- ⏳ **Deliveries** - List, get, replay (stub)
-- ⏳ **Transforms** - JSONata transforms with testing (stub)
-- ⏳ **Filters** - Filter expressions with testing (stub)
-- ⏳ **Schemas** - JSON schema validation (stub)
+| Resource | Methods |
+|----------|---------|
+| **Sources** | List (paged and `ListAllAsync`), get, create, update, delete, bulk delete, rotate and reveal secret, verify token get/rotate, pending verification get/adopt, export, import |
+| **Providers** | Public catalog: list, get, event types and sample payloads |
+| **Destinations** | List (paged and `ListAllAsync`), get, create, update, delete, bulk delete, test, export, import |
+| **Routes** | List, get, create, update, delete, bulk delete, bulk update, export, import, circuit breaker status/reset/config |
+| **Events** | List (`ListPageAsync`, `ListAllAsync`), get, debug |
+| **Deliveries** | List, get, replay |
+| **Transforms** | List, get, create, update, delete, test |
+| **Filters** | List, get, create, update, delete, test |
+| **Schemas** | List, get, create, update, delete, validate |
+| **Tunnels** | List, get, create, bulk delete |
+| **CronJobs** | List, get, create, update, delete, trigger, list and create groups |
+| **Analytics** | Dashboard |
+| **ApiKeys** | List |
 
 ### Outbound (Customer Webhooks)
 
-- ✅ **Applications** - Fully implemented with cursor pagination
-- ⏳ **Endpoints** - CRUD, secret rotation, stats (stub)
-- ⏳ **EventTypes** - CRUD, archive/unarchive (stub)
-- ⏳ **Subscriptions** - CRUD, bulk operations (stub)
-- ⏳ **Messages** - Send, list, replay, stats (stub)
-- ⏳ **PortalTokens** - Create, list, revoke (stub)
-- ⏳ **DLQ** - List, retry, delete (stub)
+| Resource | Methods |
+|----------|---------|
+| **Applications** | List (cursor and `ListAllAsync`), get, create, update, delete, get-or-create |
+| **Endpoints** | List, get, create, update, delete, rotate secret, stats |
+| **EventTypes** | List, get, create, update, delete |
+| **Subscriptions** | List, get, create, update, delete, bulk subscribe |
+| **Messages** | Send, list, get, replay, stats summary, export |
+| **PortalTokens** | Create, list, revoke |
+| **DLQ** | List, stats, retry one message, delete one message |
 
 ### Utilities
 
-- ✅ **WebhookVerifier** - HMAC-SHA256 (`v1`) and Ed25519 (`v1a`) signature verification
+- **WebhookVerifier** - HMAC-SHA256 (`v1`) and Ed25519 (`v1a`) signature verification, and
+  `GenerateTestHeaders` for tests (HMAC, or Ed25519 with a `whsk_` key)
 
 ## Requirements
 
@@ -484,13 +567,11 @@ await client.Messages.SendAsync("org_123", new SendMessageRequest
 
 ## Contributing
 
-This SDK is in active development. Contributions are welcome!
-
-To implement remaining endpoints:
-1. See `DEVELOPMENT.md` for implementation patterns
-2. Follow the pattern in `SourcesResource.cs` and `ApplicationsResource.cs`
-3. Update response wrapper types as needed
-4. Add comprehensive XML documentation
+Contributions are welcome. When adding or changing an endpoint:
+1. Follow the pattern in `SourcesResource.cs` and `ApplicationsResource.cs`
+2. Update response wrapper types as needed
+3. Add XML documentation and a contract test under `tests/Hookbase.Tests`
+4. Run `dotnet build` and `dotnet test`
 
 ## License
 

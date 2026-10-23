@@ -17,7 +17,9 @@ public class HookbaseClientOptions
     public string BaseUrl { get; set; } = "https://api.hookbase.app";
 
     /// <summary>
-    /// Request timeout in seconds.
+    /// Request timeout in seconds, applied to each attempt (a retry gets a fresh timeout).
+    /// It is enforced per request, so it also applies to a supplied <see cref="HttpClient"/>
+    /// without changing that client's own <c>Timeout</c>; whichever is shorter wins.
     /// Default: 30 seconds
     /// </summary>
     public int Timeout { get; set; } = 30;
@@ -30,8 +32,11 @@ public class HookbaseClientOptions
     public int MaxRetries { get; set; } = 3;
 
     /// <summary>
-    /// Optional HttpClient to use for requests.
-    /// If not provided, a new HttpClient will be created.
+    /// Optional HttpClient to use for requests, for example one from <c>IHttpClientFactory</c>.
+    /// The SDK never modifies it (<c>BaseAddress</c>, <c>Timeout</c> and
+    /// <c>DefaultRequestHeaders</c> are left alone; the URL, API key and User-Agent are set on
+    /// each request) and never disposes it, so one instance can be shared by several clients.
+    /// If not provided, a new HttpClient is created and disposed with the client.
     /// </summary>
     public HttpClient? HttpClient { get; set; }
 }

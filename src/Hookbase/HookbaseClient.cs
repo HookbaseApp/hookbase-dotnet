@@ -9,7 +9,6 @@ namespace Hookbase;
 public class HookbaseClient : IDisposable
 {
     private readonly IApiClient _apiClient;
-    private readonly HttpClient? _ownedHttpClient;
 
     /// <summary>
     /// Webhook sources - inbound webhook endpoints.
@@ -121,24 +120,14 @@ public class HookbaseClient : IDisposable
             throw new ArgumentException("API key is required", nameof(options));
         }
 
-        HttpClient httpClient;
-        if (options.HttpClient != null)
-        {
-            httpClient = options.HttpClient;
-            _ownedHttpClient = null;
-        }
-        else
-        {
-            httpClient = new HttpClient();
-            _ownedHttpClient = httpClient;
-        }
-
+        // A supplied HttpClient is used as is (never modified or disposed); without one the
+        // ApiClient creates its own and disposes it with this client.
         _apiClient = new ApiClient(
             options.ApiKey,
             options.BaseUrl,
             options.Timeout,
             options.MaxRetries,
-            httpClient
+            options.HttpClient
         );
 
         // Initialize resources
@@ -178,6 +167,5 @@ public class HookbaseClient : IDisposable
         {
             disposable.Dispose();
         }
-        _ownedHttpClient?.Dispose();
     }
 }
