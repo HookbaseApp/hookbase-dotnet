@@ -141,7 +141,7 @@ public class DlqResource : BaseResource
     /// <summary>
     /// Delete up to 100 DLQ messages at once (<c>DELETE /outbound-messages/dlq/bulk</c>).
     /// </summary>
-    /// <returns>The number of ids sent; the API does not report how many were in the DLQ.</returns>
+    /// <returns>How many of the ids were in the DLQ and were removed. Unknown ids are not counted.</returns>
     public async Task<int> DeleteBulkAsync(
         IEnumerable<string> messageIds,
         CancellationToken cancellationToken = default)
