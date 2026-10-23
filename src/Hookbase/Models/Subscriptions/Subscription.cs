@@ -146,6 +146,15 @@ public record BulkSubscribeRequest
     public required List<string> EventTypeIds { get; init; }
     public Dictionary<string, string>? LabelFilters { get; init; }
     public string? LabelFilterMode { get; init; }
+
+    /// <summary>Filter expression applied to every created subscription.</summary>
+    public string? FilterExpression { get; init; }
+
+    /// <summary>Transform (UUID) applied to every created subscription.</summary>
+    public string? TransformId { get; init; }
+
+    /// <summary>Only <c>latest</c> is accepted here; omitted pins each to its event type's current version.</summary>
+    public string? EventVersion { get; init; }
 }
 
 /// <summary>
