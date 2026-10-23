@@ -65,32 +65,50 @@ public class TransformsResource : BaseResource
         CreateTransformRequest request,
         CancellationToken cancellationToken = default)
     {
-        var response = await ApiClient.RequestAsync<GetTransformResponse>(
+        var response = await ApiClient.RequestAsync<CreateTransformResponse>(
             HttpMethod.Post,
             "/api/transforms",
             body: request,
             cancellationToken: cancellationToken
         );
 
-        return response.Transform;
+        // The create response names three fields in snake_case (transforms.ts); map them.
+        var created = response.Transform;
+        return new Transform
+        {
+            Id = created.Id,
+            Name = created.Name,
+            Slug = created.Slug,
+            Description = created.Description,
+            Code = created.Code,
+            TransformType = created.TransformType ?? created.TransformTypeSnake,
+            InputFormat = created.InputFormat ?? created.InputFormatSnake,
+            OutputFormat = created.OutputFormat ?? created.OutputFormatSnake,
+            IsActive = true,
+        };
     }
 
     /// <summary>
-    /// Update an existing transform.
+    /// Update an existing transform and return it as it now is.
     /// </summary>
+    /// <remarks>
+    /// The API answers the PATCH with <c>{ success: true }</c> only, so this reads the transform
+    /// back afterwards (two requests). It used to parse the PATCH response as a transform, which
+    /// threw after the update had already been applied.
+    /// </remarks>
     public async Task<Transform> UpdateAsync(
         string id,
         UpdateTransformRequest request,
         CancellationToken cancellationToken = default)
     {
-        var response = await ApiClient.RequestAsync<GetTransformResponse>(
+        await ApiClient.RequestAsync<SuccessResponse>(
             HttpMethod.Patch,
             $"/api/transforms/{Uri.EscapeDataString(id)}",
             body: request,
             cancellationToken: cancellationToken
         );
 
-        return response.Transform;
+        return await GetAsync(id, cancellationToken);
     }
 
     /// <summary>
@@ -130,6 +148,32 @@ public class TransformsResource : BaseResource
     private record GetTransformResponse
     {
         public required Transform Transform { get; init; }
+    }
+
+    private record CreateTransformResponse
+    {
+        public required CreatedTransform Transform { get; init; }
+    }
+
+    private record CreatedTransform
+    {
+        public string? Id { get; init; }
+        public string? Name { get; init; }
+        public string? Slug { get; init; }
+        public string? Description { get; init; }
+        public string? Code { get; init; }
+        public string? TransformType { get; init; }
+        public string? InputFormat { get; init; }
+        public string? OutputFormat { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("transform_type")]
+        public string? TransformTypeSnake { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("input_format")]
+        public string? InputFormatSnake { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("output_format")]
+        public string? OutputFormatSnake { get; init; }
     }
 
     private record SuccessResponse

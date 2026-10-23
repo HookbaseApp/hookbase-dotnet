@@ -42,20 +42,26 @@ public class TunnelsResource : BaseResource
     }
 
     /// <summary>
-    /// Create a new tunnel.
+    /// Create a new tunnel. The result carries <see cref="Tunnel.AuthToken"/>,
+    /// <see cref="Tunnel.TunnelUrl"/> and <see cref="Tunnel.WsUrl"/>, which only this call returns.
     /// </summary>
     public async Task<Tunnel> CreateAsync(
         CreateTunnelRequest request,
         CancellationToken cancellationToken = default)
     {
-        var response = await ApiClient.RequestAsync<GetTunnelResponse>(
+        var response = await ApiClient.RequestAsync<CreateTunnelResponse>(
             HttpMethod.Post,
             "/api/tunnels",
             body: request,
             cancellationToken: cancellationToken
         );
 
-        return response.Tunnel;
+        // tunnelUrl and wsUrl sit beside the tunnel, not in it.
+        return response.Tunnel with
+        {
+            TunnelUrl = response.Tunnel.TunnelUrl ?? response.TunnelUrl,
+            WsUrl = response.Tunnel.WsUrl ?? response.WsUrl,
+        };
     }
 
     /// <summary>
@@ -77,6 +83,13 @@ public class TunnelsResource : BaseResource
     private record ListTunnelsResponse
     {
         public required List<Tunnel> Tunnels { get; init; }
+    }
+
+    private record CreateTunnelResponse
+    {
+        public required Tunnel Tunnel { get; init; }
+        public string? TunnelUrl { get; init; }
+        public string? WsUrl { get; init; }
     }
 
     private record GetTunnelResponse

@@ -71,7 +71,32 @@ public record TestFilterRequest
 /// </summary>
 public record TestFilterResult
 {
+    [Obsolete("The API does not return success; it is always false. A 4xx raises HookbaseApiException instead.")]
     public bool Success { get; init; }
+
+    /// <summary>Whether the payload matched the conditions under <see cref="Logic"/> (the API's <c>matches</c>).</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("matches")]
     public bool Matched { get; init; }
+
+    /// <summary>The logic the API applied: <c>AND</c> or <c>OR</c>.</summary>
+    public string? Logic { get; init; }
+
+    /// <summary>Per-condition outcome.</summary>
+    public List<FilterConditionResult>? Results { get; init; }
+
+    [Obsolete("The API does not return error on a filter test; it is always null.")]
     public string? Error { get; init; }
+}
+
+/// <summary>How one condition evaluated against the test payload.</summary>
+public record FilterConditionResult
+{
+    public string? Field { get; init; }
+    public string? Operator { get; init; }
+    public object? Value { get; init; }
+
+    /// <summary>The value found at <see cref="Field"/> in the payload, or null if absent.</summary>
+    public object? FieldValue { get; init; }
+
+    public bool Passed { get; init; }
 }
