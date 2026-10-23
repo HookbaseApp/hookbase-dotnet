@@ -220,26 +220,50 @@ public enum CircuitState
     HalfOpen
 }
 
+/// <summary>
+/// Inbound event status, used as the <c>status</c> filter on event lists. Sent as the API's
+/// snake_case names: <c>delivered</c>, <c>failed</c>, <c>pending</c>, <c>partial</c>,
+/// <c>duplicate</c>, <c>no_routes</c>.
+/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum InboundEventStatus
 {
+    [Obsolete("Not an API event status; filtering by it matches nothing. Use Pending.")]
     Received,
+    [Obsolete("Not an API event status; filtering by it matches nothing. Use Pending.")]
     Processing,
     Delivered,
+    [Obsolete("Not an API event status; filtering by it matches nothing. Use Partial.")]
     PartiallyDelivered,
     Failed,
-    Filtered
+    [Obsolete("Not an API event status; filtering by it matches nothing. Use NoRoutes.")]
+    Filtered,
+    Pending,
+    Partial,
+    Duplicate,
+    NoRoutes
 }
 
+/// <summary>
+/// Inbound delivery status, used as the <c>status</c> filter on delivery lists. Sent as the API's
+/// snake_case names: <c>pending</c>, <c>delivered</c>, <c>failed</c>, <c>failed_over</c>,
+/// <c>schema_failed</c>, <c>throttled</c>.
+/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DeliveryStatus
 {
     Pending,
+    [Obsolete("Not an API delivery status; filtering by it matches nothing. Use Pending.")]
     Queued,
+    [Obsolete("Not an API delivery status; filtering by it matches nothing. Use Pending.")]
     Sending,
     Delivered,
     Failed,
-    Exhausted
+    [Obsolete("Not an API delivery status; filtering by it matches nothing. Use Failed.")]
+    Exhausted,
+    FailedOver,
+    SchemaFailed,
+    Throttled
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

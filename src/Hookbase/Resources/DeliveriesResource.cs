@@ -34,7 +34,7 @@ public class DeliveriesResource : BaseResource
 
         if (eventId != null) queryParams["eventId"] = eventId;
         if (destinationId != null) queryParams["destinationId"] = destinationId;
-        if (status.HasValue) queryParams["status"] = status.Value.ToString().ToLower();
+        if (status.HasValue) queryParams["status"] = Hookbase.Json.WireNames.SnakeCase(status.Value);
 
         var response = await ApiClient.RequestAsync<ListDeliveriesResponse>(
             HttpMethod.Get,

@@ -8,16 +8,73 @@ using System.Text.Json.Serialization;
 namespace Hookbase.Models.Destinations;
 
 /// <summary>
-/// Type of destination - HTTP endpoint or warehouse storage.
+/// Type of destination: an HTTP endpoint, a message queue, or warehouse storage. On the wire these
+/// are the API's names (<c>http</c>, <c>sqs</c>, <c>eventbridge</c>, <c>servicebus</c>,
+/// <c>pubsub</c>, <c>oci_queue</c>, <c>s3</c>, <c>r2</c>, <c>gcs</c>, <c>azure_blob</c>).
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter))]
+/// <remarks>
+/// A type the SDK does not know yet reads as null rather than failing the whole response.
+/// </remarks>
 public enum DestinationType
 {
     Http,
     S3,
     R2,
     Gcs,
-    AzureBlob
+    AzureBlob,
+    Sqs,
+    EventBridge,
+    ServiceBus,
+    PubSub,
+    OciQueue
+}
+
+/// <summary>
+/// Reads and writes <see cref="DestinationType"/> as the API's snake_case names. The SDK's
+/// global camelCase enum converter wrote <c>AzureBlob</c> as <c>azureBlob</c> (rejected with a
+/// 400) and could not read <c>azure_blob</c> or any queue type (the whole list threw).
+/// </summary>
+public sealed class DestinationTypeJsonConverter : JsonConverter<DestinationType?>
+{
+    private static readonly Dictionary<DestinationType, string> ToWire = new()
+    {
+        [DestinationType.Http] = "http",
+        [DestinationType.S3] = "s3",
+        [DestinationType.R2] = "r2",
+        [DestinationType.Gcs] = "gcs",
+        [DestinationType.AzureBlob] = "azure_blob",
+        [DestinationType.Sqs] = "sqs",
+        [DestinationType.EventBridge] = "eventbridge",
+        [DestinationType.ServiceBus] = "servicebus",
+        [DestinationType.PubSub] = "pubsub",
+        [DestinationType.OciQueue] = "oci_queue",
+    };
+
+    private static readonly Dictionary<string, DestinationType> FromWire =
+        ToWire.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The API name of a destination type, e.g. <c>azure_blob</c>.</summary>
+    public static string WireName(DestinationType type) => ToWire[type];
+
+    public override DestinationType? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a destination type string, got {reader.TokenType}");
+        }
+
+        var value = reader.GetString()!;
+        if (FromWire.TryGetValue(value, out var type)) return type;
+        // Older SDKs wrote camelCase / PascalCase member names (azureBlob, AzureBlob).
+        return Enum.TryParse<DestinationType>(value, ignoreCase: true, out var parsed) ? parsed : null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DestinationType? value, JsonSerializerOptions options)
+    {
+        if (value == null) writer.WriteNullValue();
+        else writer.WriteStringValue(ToWire[value.Value]);
+    }
 }
 
 /// <summary>
@@ -106,6 +163,7 @@ public record Destination
     public string? OrganizationId { get; init; }
     public string? Name { get; init; }
     public string? Slug { get; init; }
+    [JsonConverter(typeof(DestinationTypeJsonConverter))]
     public DestinationType? Type { get; init; }
     public string? Url { get; init; }
     public string? Method { get; init; }
@@ -167,6 +225,7 @@ public record CreateDestinationRequest
         init => _slug = value;
     }
 
+    [JsonConverter(typeof(DestinationTypeJsonConverter))]
     public DestinationType? Type { get; init; }
     public string? Url { get; init; }
     public string? Method { get; init; }
