@@ -20,6 +20,13 @@ public class HookbaseApiException : HookbaseException
     /// </summary>
     public Dictionary<string, object>? Details { get; }
 
+    /// <summary>
+    /// Machine-readable error code from the response body's <c>code</c> field (for example
+    /// <c>FEATURE_DISABLED</c>, <c>LIMIT_EXCEEDED</c> or <c>invalid_id</c>), or null when the API sent none. Prefer it
+    /// over matching on <see cref="Exception.Message"/>, which is meant for people.
+    /// </summary>
+    public string? Code { get; init; }
+
     public HookbaseApiException(
         string message,
         int statusCode,

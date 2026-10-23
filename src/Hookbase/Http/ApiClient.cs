@@ -199,7 +199,13 @@ public class ApiClient : IApiClient, IDisposable
                     continue;
                 }
 
-                throw new HookbaseException($"Request failed: {ex.Message}", ex);
+                // Subclasses of HookbaseException, so a catch of that still sees them.
+                throw ex switch
+                {
+                    TaskCanceledException => new HookbaseTimeoutException($"Request failed: {ex.Message}", ex),
+                    HttpRequestException => new HookbaseNetworkException($"Request failed: {ex.Message}", ex),
+                    _ => new HookbaseException($"Request failed: {ex.Message}", ex),
+                };
             }
         }
     }
@@ -240,6 +246,7 @@ public class ApiClient : IApiClient, IDisposable
         string? errorMessage = null;
         Dictionary<string, object>? details = null;
         Dictionary<string, string[]>? fieldErrors = null;
+        string? code = null;
 
         try
         {
@@ -249,14 +256,22 @@ public class ApiClient : IApiClient, IDisposable
                 var errorResponse = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(content, JsonOptions);
                 if (errorResponse != null)
                 {
-                    if (errorResponse.TryGetValue("message", out var msg))
+                    // Hookbase sends { error: "<text>", code?, message?, details? }; message, when
+                    // present, is the more specific text. Tolerate a nested { error: { message,
+                    // code } } too, and never let a non-string value lose the rest of the body.
+                    errorResponse.TryGetValue("error", out var err);
+                    errorMessage = StringValue(errorResponse, "message")
+                        ?? (err.ValueKind == JsonValueKind.String ? err.GetString() : null)
+                        ?? (err.ValueKind == JsonValueKind.Object && err.TryGetProperty("message", out var nested)
+                            && nested.ValueKind == JsonValueKind.String ? nested.GetString() : null);
+                    if (string.IsNullOrEmpty(errorMessage))
                     {
-                        errorMessage = msg.GetString();
+                        errorMessage = null;
                     }
-                    else if (errorResponse.TryGetValue("error", out var err))
-                    {
-                        errorMessage = err.GetString();
-                    }
+
+                    code = StringValue(errorResponse, "code")
+                        ?? (err.ValueKind == JsonValueKind.Object && err.TryGetProperty("code", out var nestedCode)
+                            && nestedCode.ValueKind == JsonValueKind.String ? nestedCode.GetString() : null);
 
                     details = errorResponse.ToDictionary(
                         kvp => kvp.Key,
@@ -292,43 +307,51 @@ public class ApiClient : IApiClient, IDisposable
         errorMessage ??= $"HTTP {statusCode}: {response.ReasonPhrase}";
 
         // Throw specific exception based on status code
-        switch (statusCode)
+        throw statusCode switch
         {
-            case 400:
-            case 422:
-                throw new ValidationException(errorMessage, statusCode, fieldErrors, requestId, details);
-
-            case 401:
-                throw new AuthenticationException(errorMessage, requestId, details);
-
-            case 403:
-                throw new ForbiddenException(errorMessage, requestId, details);
-
-            case 404:
-                throw new NotFoundException(errorMessage, requestId, details);
-
-            case 409:
-                throw new ConflictException(errorMessage, requestId, details);
-
-            case 429:
-                int? retryAfter = null;
-                if (response.Headers.RetryAfter?.Delta.HasValue == true)
-                {
-                    retryAfter = (int)response.Headers.RetryAfter.Delta.Value.TotalSeconds;
-                }
-                throw new RateLimitException(errorMessage, retryAfter, requestId, details);
-
-            default:
-                throw new HookbaseApiException(errorMessage, statusCode, requestId, details);
-        }
+            400 or 422 => new ValidationException(errorMessage, statusCode, fieldErrors, requestId, details) { Code = code },
+            401 => new AuthenticationException(errorMessage, requestId, details) { Code = code },
+            403 => new ForbiddenException(errorMessage, requestId, details) { Code = code },
+            404 => new NotFoundException(errorMessage, requestId, details) { Code = code },
+            409 => new ConflictException(errorMessage, requestId, details) { Code = code },
+            429 => new RateLimitException(errorMessage, RetryAfterSeconds(response), requestId, details) { Code = code },
+            _ => new HookbaseApiException(errorMessage, statusCode, requestId, details) { Code = code },
+        };
     }
+
+    private static string? StringValue(Dictionary<string, JsonElement> body, string key) =>
+        body.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    /// <summary>
+    /// The wait a <c>Retry-After</c> header asks for, as delta-seconds or an HTTP-date
+    /// (RFC 9110 10.2.3); null when there is none. A date in the past means no wait.
+    /// </summary>
+    private static TimeSpan? RetryAfterDelay(HttpResponseMessage? response)
+    {
+        var header = response?.Headers.RetryAfter;
+        if (header?.Delta is { } delta)
+        {
+            return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
+        }
+
+        if (header?.Date is { } date)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait < TimeSpan.Zero ? TimeSpan.Zero : wait;
+        }
+
+        return null;
+    }
+
+    private static int? RetryAfterSeconds(HttpResponseMessage response) =>
+        RetryAfterDelay(response) is { } wait ? (int)Math.Ceiling(wait.TotalSeconds) : null;
 
     private TimeSpan CalculateDelay(int attempt, HttpResponseMessage? response)
     {
-        // Check for Retry-After header
-        if (response?.Headers.RetryAfter?.Delta.HasValue == true)
+        // Honour Retry-After (seconds or an HTTP-date) when the response carries one.
+        if (RetryAfterDelay(response) is { } retryAfter)
         {
-            return response.Headers.RetryAfter.Delta.Value;
+            return retryAfter;
         }
 
         // Exponential backoff with jitter: min(2^attempt, 10) + jitter

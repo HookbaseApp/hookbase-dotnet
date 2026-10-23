@@ -124,7 +124,7 @@ public class HttpClientUsageTests
 
         using var client = new ApiClient("whr_one", "https://api.test.invalid", 1, 0, http);
         var started = DateTime.UtcNow;
-        var ex = await Assert.ThrowsAsync<HookbaseException>(() => Get(client));
+        var ex = await Assert.ThrowsAsync<HookbaseTimeoutException>(() => Get(client));
 
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
         Assert.StartsWith("Request failed: ", ex.Message);
@@ -141,7 +141,7 @@ public class HttpClientUsageTests
         using var client = new ApiClient("whr_one", "https://api.test.invalid", 1, 1, new HttpClient(handler));
 
         // Backoff before the retry is ~1-1.3 s, so the whole call is about 3.3 s at most.
-        await Assert.ThrowsAsync<HookbaseException>(() => Get(client));
+        await Assert.ThrowsAsync<HookbaseTimeoutException>(() => Get(client));
         Assert.Equal(2, handler.Requests.Count);
     }
 
