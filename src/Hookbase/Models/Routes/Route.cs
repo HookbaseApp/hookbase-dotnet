@@ -228,20 +228,31 @@ public record ImportRoutesRequest
 /// Import routes result.
 /// </summary>
 /// <remarks>
-/// Applied: <c>Imported</c> / <c>Skipped</c> (route names), <c>Errors</c> and <c>Summary</c>
-/// (<c>Total</c>, <c>Imported</c>, <c>Skipped</c>, <c>Errors</c>). With <c>ValidateOnly</c>:
-/// <c>ValidationResults</c> and <c>Summary</c> (<c>Total</c>, <c>Valid</c>, <c>Skipped</c>,
-/// <c>Overwrite</c>, <c>Errors</c>).
+/// Applied: <c>Success</c>, <c>Summary</c> (<c>Total</c>, <c>Imported</c> = created, <c>Skipped</c>,
+/// <c>Overwritten</c>, <c>Failed</c>) and <c>Details</c>, the same shape as a source or destination
+/// import. The top-level <c>Imported</c> / <c>Skipped</c> / <c>Errors</c> lists are the older
+/// routes-only shape; there <c>Imported</c> lists created and overwritten routes together.
+/// With <c>ValidateOnly</c>: <c>Valid</c>, <c>ValidationResults</c> and <c>Summary</c>
+/// (<c>Total</c>, <c>ToCreate</c>, <c>ToOverwrite</c>, <c>ToSkip</c>, <c>Errors</c>).
+/// An API older than the unified shape sends no <c>Overwritten</c>, counting overwrites in
+/// <c>Summary.Imported</c>.
 /// </remarks>
 public record ImportRoutesResult
 {
     public bool Success { get; init; }
     public bool ValidateOnly { get; init; }
+
+    /// <summary>Validate-only: whether no route has status <c>error</c>; null on an applied import.</summary>
+    public bool? Valid { get; init; }
+
     public List<Hookbase.Models.Common.ImportValidationResult>? ValidationResults { get; init; }
     public List<string>? Imported { get; init; }
     public List<string>? Skipped { get; init; }
     public List<ImportError>? Errors { get; init; }
     public ImportSummary? Summary { get; init; }
+
+    /// <summary>Applied: which routes landed where, by name.</summary>
+    public Hookbase.Models.Destinations.ImportDetails? Details { get; init; }
 }
 
 public record ImportError
@@ -257,10 +268,25 @@ public record ImportSummary
     public int Skipped { get; init; }
     public int Errors { get; init; }
 
+    /// <summary>Applied: routes overwritten (not counted in <c>Imported</c>).</summary>
+    public int? Overwritten { get; init; }
+
+    /// <summary>Applied: routes that failed; same as <c>Errors</c>.</summary>
+    public int? Failed { get; init; }
+
     /// <summary>Validate-only: routes that would be created.</summary>
-    public int? Valid { get; init; }
+    public int? ToCreate { get; init; }
 
     /// <summary>Validate-only: routes that would be overwritten.</summary>
+    public int? ToOverwrite { get; init; }
+
+    /// <summary>Validate-only: routes that would be skipped.</summary>
+    public int? ToSkip { get; init; }
+
+    /// <summary>Validate-only: routes that would be created or renamed. Older name; prefer <c>ToCreate</c>.</summary>
+    public int? Valid { get; init; }
+
+    /// <summary>Validate-only: routes that would be overwritten. Older name; prefer <c>ToOverwrite</c>.</summary>
     public int? Overwrite { get; init; }
 }
 

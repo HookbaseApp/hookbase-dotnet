@@ -459,6 +459,9 @@ public record ImportDestinationsResult
 {
     public bool Success { get; init; }
 
+    /// <summary>True on a validate-only run.</summary>
+    public bool ValidateOnly { get; init; }
+
     /// <summary>Validate-only: whether no item has status <c>error</c>; null on an applied import.</summary>
     public bool? Valid { get; init; }
 
@@ -477,7 +480,7 @@ public record ImportSummary
     public int Overwritten { get; init; }
     public int Failed { get; init; }
 
-    /// <summary>Validate-only: items sent.</summary>
+    /// <summary>Items sent.</summary>
     public int? Total { get; init; }
 
     /// <summary>Validate-only: items that would be created.</summary>
@@ -489,7 +492,7 @@ public record ImportSummary
     /// <summary>Validate-only: items that would be skipped.</summary>
     public int? ToSkip { get; init; }
 
-    /// <summary>Validate-only: items with errors.</summary>
+    /// <summary>Items with errors (on an applied import, same as <c>Failed</c>).</summary>
     public int? Errors { get; init; }
 }
 

@@ -2,27 +2,77 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Hookbase.Exceptions;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Signers;
 
 namespace Hookbase.Webhooks;
 
 /// <summary>
-/// Verifies webhook signatures using HMAC-SHA256.
+/// Verifies the Standard Webhooks signatures Hookbase sends to your endpoints.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The key you construct it with picks the scheme, exactly as the endpoint's
+/// <c>signatureScheme</c> does on the server:
+/// </para>
+/// <list type="bullet">
+/// <item><description><c>whsec_...</c> (HMAC-SHA256, scheme <c>hmac-sha256</c>): checks the
+/// <c>v1,&lt;base64&gt;</c> entries of <c>webhook-signature</c>.</description></item>
+/// <item><description><c>whpk_...</c> (Ed25519 public key, scheme <c>ed25519</c>): checks the
+/// <c>v1a,&lt;base64&gt;</c> entries. The public key is <see cref="Models.Endpoints.Endpoint.PublicKey"/>
+/// (or <see cref="Models.Endpoints.RotateSecretResult.PublicKey"/> after a rotation); Hookbase keeps
+/// the private key and never returns it.</description></item>
+/// </list>
+/// <para>
+/// Both schemes sign <c>{webhook-id}.{webhook-timestamp}.{body}</c>, apply the same timestamp
+/// tolerance, and accept the header when any one entry of their version matches (during a key
+/// rotation the header carries the previous and the new signature). Entries of the other version
+/// are ignored. Instances are immutable and thread-safe.
+/// </para>
+/// </remarks>
 public class WebhookVerifier
 {
-    private readonly byte[] _secretKey;
+    /// <summary>Value of <see cref="SignatureScheme"/> for a <c>whsec_</c> secret.</summary>
+    public const string HmacSha256 = "hmac-sha256";
+
+    /// <summary>Value of <see cref="SignatureScheme"/> for a <c>whpk_</c> public key.</summary>
+    public const string Ed25519 = "ed25519";
+
+    private const string PublicKeyPrefix = "whpk_";
+
+    // Exactly one of these is set, by the constructor.
+    private readonly byte[]? _secretKey;
+    private readonly Ed25519PublicKeyParameters? _publicKey;
 
     /// <summary>
-    /// Creates a new webhook verifier with the given secret.
+    /// The scheme this verifier checks: <see cref="HmacSha256"/> (<c>v1</c> entries) or
+    /// <see cref="Ed25519"/> (<c>v1a</c> entries). Same values as the endpoint's <c>signatureScheme</c>.
     /// </summary>
-    /// <param name="secret">Webhook signing secret: 'whsec_' + base64 (endpoint secrets), 'whsec_op_' +
-    /// base64 (operational webhook secrets), or a legacy 64-character hex secret.</param>
+    public string SignatureScheme { get; }
+
+    /// <summary>
+    /// Creates a new webhook verifier with the given secret or public key.
+    /// </summary>
+    /// <param name="secret">The endpoint's verification key: 'whsec_' + base64 (HMAC endpoint secrets),
+    /// 'whsec_op_' + base64 (operational webhook secrets), a legacy 64-character hex secret, or
+    /// 'whpk_' + base64 of a 32-byte Ed25519 public key (endpoints whose signature scheme is ed25519).</param>
+    /// <exception cref="ArgumentException">The key is empty or cannot be decoded.</exception>
     public WebhookVerifier(string secret)
     {
         if (string.IsNullOrWhiteSpace(secret))
         {
             throw new ArgumentException("Secret cannot be null or empty", nameof(secret));
         }
+
+        secret = secret.Trim();
+        if (secret.StartsWith(PublicKeyPrefix, StringComparison.Ordinal))
+        {
+            _publicKey = DecodePublicKey(secret.Substring(PublicKeyPrefix.Length));
+            SignatureScheme = Ed25519;
+            return;
+        }
+
+        SignatureScheme = HmacSha256;
 
         // Strip 'whsec_', plus the 'op_' infix operational webhook secrets carry. base64 never
         // contains '_', so this never trims a regular secret.
@@ -102,25 +152,21 @@ public class WebhookVerifier
         }
 
         // Verify signature
-        var expectedSignatures = ParseSignatures(signatureHeader);
+        var version = _publicKey != null ? "v1a" : "v1";
+        var expectedSignatures = ParseSignatures(signatureHeader, version);
         if (expectedSignatures.Count == 0)
         {
-            throw new WebhookVerificationException("No signatures found in webhook-signature header");
+            throw new WebhookVerificationException(_publicKey != null
+                ? "No v1a (Ed25519) signatures found in webhook-signature header"
+                : "No signatures found in webhook-signature header");
         }
 
         // Sign the timestamp exactly as sent, as the sender did.
         var signedContent = $"{webhookId}.{timestampStr}.{payload}";
-        var computedSignature = ComputeSignature(signedContent);
 
-        var isValid = false;
-        foreach (var expectedSig in expectedSignatures)
-        {
-            if (SecureCompare(computedSignature, expectedSig))
-            {
-                isValid = true;
-                break;
-            }
-        }
+        var isValid = _publicKey != null
+            ? VerifyEd25519(_publicKey, Encoding.UTF8.GetBytes(signedContent), expectedSignatures)
+            : VerifyHmac(signedContent, expectedSignatures);
 
         if (!isValid)
         {
@@ -164,19 +210,89 @@ public class WebhookVerifier
         }
     }
 
-    private string ComputeSignature(string signedContent)
+    private bool VerifyHmac(string signedContent, List<string> signatures)
     {
-        using var hmac = new HMACSHA256(_secretKey);
-        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signedContent));
-        return Convert.ToBase64String(hash);
+        using var hmac = new HMACSHA256(_secretKey!);
+        var computed = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(signedContent)));
+
+        foreach (var signature in signatures)
+        {
+            if (SecureCompare(computed, signature))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool VerifyEd25519(Ed25519PublicKeyParameters publicKey, byte[] signedContent, List<string> signatures)
+    {
+        foreach (var signature in signatures)
+        {
+            byte[] signatureBytes;
+            try
+            {
+                signatureBytes = Convert.FromBase64String(signature);
+            }
+            catch (FormatException)
+            {
+                continue;
+            }
+
+            if (signatureBytes.Length != Ed25519PublicKeyParameters.KeySize * 2)
+            {
+                continue;
+            }
+
+            // Signers are stateful, so one per check keeps the verifier thread-safe.
+            var signer = new Ed25519Signer();
+            signer.Init(false, publicKey);
+            signer.BlockUpdate(signedContent, 0, signedContent.Length);
+            if (signer.VerifySignature(signatureBytes))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Ed25519PublicKeyParameters DecodePublicKey(string base64)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(base64);
+        }
+        catch (FormatException ex)
+        {
+            throw new ArgumentException("Invalid public key format - 'whpk_' must be followed by base64", "secret", ex);
+        }
+
+        if (bytes.Length != Ed25519PublicKeyParameters.KeySize)
+        {
+            throw new ArgumentException(
+                $"Invalid public key - an Ed25519 public key is {Ed25519PublicKeyParameters.KeySize} bytes, got {bytes.Length}", "secret");
+        }
+
+        try
+        {
+            return new Ed25519PublicKeyParameters(bytes);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ArgumentException("Invalid public key - not a valid Ed25519 point", "secret", ex);
+        }
     }
 
     /// <summary>
     /// Parses a Standard Webhooks signature header: space-separated "version,signature" entries,
-    /// e.g. "v1,abc= v1,def=" while a secret rotation is in its grace period. Only v1 entries are
-    /// returned. (This used to split on ',', which only worked for a single signature.)
+    /// e.g. "v1,abc= v1,def=" while a secret rotation is in its grace period. Only entries of
+    /// <paramref name="version"/> ("v1" for HMAC, "v1a" for Ed25519) are returned. (This used to
+    /// split on ',', which only worked for a single signature.)
     /// </summary>
-    private static List<string> ParseSignatures(string signatureHeader)
+    private static List<string> ParseSignatures(string signatureHeader, string version)
     {
         var signatures = new List<string>();
         var entries = signatureHeader.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -189,7 +305,7 @@ public class WebhookVerifier
                 continue;
             }
 
-            if (entry.Substring(0, comma) == "v1")
+            if (entry.Substring(0, comma) == version)
             {
                 signatures.Add(entry.Substring(comma + 1));
             }

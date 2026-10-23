@@ -4,6 +4,7 @@ using System.Text.Json;
 using Hookbase.Exceptions;
 using Hookbase.Http;
 using Hookbase.Json;
+using Hookbase.Models.Endpoints;
 using Hookbase.Models.EventTypes;
 using Hookbase.Models.Messages;
 using Hookbase.Resources;
@@ -464,6 +465,46 @@ public class OutboundContractTests
         Assert.Equal("whsec_abc", result.Secret);
         Assert.Equal("2026-10-17T01:00:00.000Z", result.PreviousSecretExpiresAt);
         Assert.Equal(3, result.SecretVersion);
+    }
+
+    [Fact]
+    public async Task RotateSecret_MapsTheEd25519KeyPairResponse()
+    {
+        var (client, handler) = Create();
+        handler.Respond(HttpStatusCode.OK, """{ "signatureScheme": "ed25519", "publicKey": "whpk_new", "previousPublicKey": "whpk_old", "previousSecretExpiresAt": "2026-10-17T01:00:00.000Z", "secretVersion": 4 }""");
+
+        var result = await new EndpointsResource(client).RotateSecretAsync("ep_1");
+
+        Assert.Equal("ed25519", result.SignatureScheme);
+        Assert.Null(result.Secret);
+        Assert.Equal("whpk_new", result.PublicKey);
+        Assert.Equal("whpk_old", result.PreviousPublicKey);
+        Assert.Equal("2026-10-17T01:00:00.000Z", result.PreviousSecretExpiresAt);
+        Assert.Equal(4, result.SecretVersion);
+    }
+
+    [Fact]
+    public void Endpoint_MapsSignatureSchemeAndPublicKey()
+    {
+        var endpoint = JsonSerializer.Deserialize<Endpoint>(
+            """{ "id": "ep_1", "signatureScheme": "ed25519", "publicKey": "whpk_abc", "secretPrefix": "whsk_...", "hasSecret": true }""",
+            HookbaseJson.Options)!;
+
+        Assert.Equal("ed25519", endpoint.SignatureScheme);
+        Assert.Equal("whpk_abc", endpoint.PublicKey);
+    }
+
+    [Fact]
+    public void EndpointRequests_SendSignatureSchemeOnlyWhenSet()
+    {
+        var create = JsonSerializer.Serialize(
+            new CreateEndpointRequest { ApplicationId = "app_1", Url = "https://x.example", SignatureScheme = "ed25519" }, HookbaseJson.Options);
+        var update = JsonSerializer.Serialize(new UpdateEndpointRequest { SignatureScheme = "hmac-sha256" }, HookbaseJson.Options);
+        var unset = JsonSerializer.Serialize(new UpdateEndpointRequest { Url = "https://x.example" }, HookbaseJson.Options);
+
+        Assert.Contains("\"signatureScheme\":\"ed25519\"", create);
+        Assert.Equal("{\"signatureScheme\":\"hmac-sha256\"}", update);
+        Assert.DoesNotContain("signatureScheme", unset);
     }
 
     [Theory]

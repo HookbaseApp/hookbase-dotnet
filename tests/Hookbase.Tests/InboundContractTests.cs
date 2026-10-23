@@ -536,6 +536,38 @@ public class InboundContractTests
     }
 
     [Fact]
+    public async Task RoutesImport_MapsTheUnifiedShape()
+    {
+        var (client, handler) = Create();
+        handler
+            .Respond("POST /api/routes/import", """
+                {"success":true,
+                 "summary":{"total":2,"imported":1,"skipped":0,"overwritten":1,"failed":0,"errors":0},
+                 "details":{"imported":["r1"],"skipped":[],"overwritten":["r2"],"failed":[]},
+                 "imported":["r1","r2"],"skipped":[],"errors":[]}
+                """)
+            .Respond("POST /api/routes/import", """
+                {"success":true,"validateOnly":true,"valid":true,"validationResults":[],
+                 "summary":{"total":2,"toCreate":1,"toOverwrite":1,"toSkip":0,"errors":0,"valid":1,"skipped":0,"overwrite":1}}
+                """);
+
+        var route = new ExportedRoute { Name = "r1", SourceSlug = "shop", DestinationSlug = "orders" };
+        var applied = await client.Routes.ImportAsync(new ImportRoutesRequest { Routes = new() { route }, ConflictStrategy = "overwrite" });
+        var validated = await client.Routes.ImportAsync(new ImportRoutesRequest { Routes = new() { route }, ConflictStrategy = "overwrite", ValidateOnly = true });
+
+        Assert.Equal(1, applied.Summary!.Imported);
+        Assert.Equal(1, applied.Summary.Overwritten);
+        Assert.Equal(0, applied.Summary.Failed);
+        Assert.Equal(new[] { "r2" }, applied.Details!.Overwritten);
+        Assert.Equal(new[] { "r1", "r2" }, applied.Imported);
+
+        Assert.True(validated.Valid);
+        Assert.Equal(1, validated.Summary!.ToCreate);
+        Assert.Equal(1, validated.Summary.ToOverwrite);
+        Assert.Equal(0, validated.Summary.ToSkip);
+    }
+
+    [Fact]
     public async Task RoutesExport_ReadsSlugsAndFilterConditions()
     {
         var (client, handler) = Create();
