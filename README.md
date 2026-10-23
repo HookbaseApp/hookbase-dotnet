@@ -448,6 +448,17 @@ await foreach (var app in client.Applications.ListAllAsync())
 
 ## Advanced Usage
 
+### Upgrading to 5.1
+
+- **Timeout with your own `HttpClient`.** The SDK no longer overwrites `HttpClient.Timeout`. The
+  effective timeout is now the shorter of `HookbaseClientOptions.Timeout` (default 30 seconds) and
+  your client's `Timeout` (100 seconds by default). Raise both for long requests.
+- **`BaseUrl` path prefixes are honoured.** Paths are appended to `BaseUrl` instead of replacing
+  its path, so a `BaseUrl` of `https://api.hookbase.app/api` must become `https://api.hookbase.app`.
+- **A bad `BaseUrl` throws `ArgumentException`** when the client is created, unless it is an
+  absolute `http` or `https` URL.
+- **429 is retried for POSTs too**, including those without an idempotency key.
+
 ### Custom HttpClient and IHttpClientFactory
 
 You can pass your own `HttpClient`, for example to add a handler (logging, a proxy) or to use
@@ -496,7 +507,8 @@ builder.Services.AddHttpClient("hookbase")
 
 Cancelling the `CancellationToken` you pass to a method throws `OperationCanceledException` (a
 `TaskCanceledException`), and the request is not retried. A timeout throws `HookbaseException`
-("Request failed: ...") once the retries are used up.
+("Request failed: Request timed out after N seconds (HookbaseClientOptions.Timeout)") once the
+retries are used up.
 
 ### Retries
 
@@ -504,17 +516,19 @@ Failed requests are retried up to `MaxRetries` times (default 3) on timeouts, ne
 and 500/502/503/504, with exponential backoff and jitter, or the `Retry-After` delay when the API
 sends one. Other 4xx responses are never retried.
 
-A POST is retried only when it carries an idempotency key. A POST without one is never retried,
-**not even on 429**, because the API may already have acted on it. `Messages.SendAsync` always
-sends a key (one is generated when you do not set `IdempotencyKey`), so sends are retried safely.
+A 429 is retried for every method, POST included, because the API rejects a rate-limited request
+before doing any work. A 5xx, network error or timeout may come after the API has already acted, so
+a POST is retried on those only when it carries an idempotency key; a POST without one is not.
+`Messages.SendAsync` always sends a key (`IdempotencyKey`, else the deprecated `EventId`, else
+one generated per call), so sends are retried safely.
 
 ### Idempotency Keys
 
 ```csharp
-// A send with the same IdempotencyKey is not delivered twice. When you do not set one, the SDK
-// generates one per call, so its own retries (on timeouts, 429 and 5xx) cannot duplicate a send.
-// Other POST requests carry no key and are never retried, even on 429, because repeating them
-// is not safe.
+// A send with the same IdempotencyKey is not delivered twice. The key is IdempotencyKey, else the
+// deprecated EventId, else one the SDK generates per call, so its own retries (on timeouts, 429
+// and 5xx) cannot duplicate a send. Other POST requests carry no key: they are retried on 429
+// only, because repeating them after a 5xx or timeout is not safe.
 await client.Messages.SendAsync("org_123", new SendMessageRequest
 {
     IdempotencyKey = "unique_event_id_123",

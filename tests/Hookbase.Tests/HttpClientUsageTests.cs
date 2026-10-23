@@ -128,7 +128,7 @@ public class HttpClientUsageTests
 
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
         Assert.StartsWith("Request failed: ", ex.Message);
-        Assert.Contains("Timeout of 1 seconds elapsing", ex.Message);
+        Assert.Equal("Request failed: Request timed out after 1 seconds (HookbaseClientOptions.Timeout)", ex.Message);
         var inner = Assert.IsType<TaskCanceledException>(ex.InnerException);
         Assert.IsType<TimeoutException>(inner.InnerException);
         Assert.Equal(Timeout.InfiniteTimeSpan, http.Timeout);
@@ -181,6 +181,16 @@ public class HttpClientUsageTests
         using var client = new ApiClient("whr_one", "https://api.test.invalid", 30, 0, http);
         await Get(client);
         Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("api.hookbase.app")]
+    [InlineData("/api")]
+    [InlineData("ftp://api.hookbase.app")]
+    public void A_bad_base_URL_throws_ArgumentException(string baseUrl)
+    {
+        Assert.Throws<ArgumentException>(() => new ApiClient("whr_one", baseUrl, 30, 0, new HttpClient(new RecordingHandler())));
+        Assert.Throws<ArgumentException>(() => new HookbaseClient(new HookbaseClientOptions { ApiKey = "whr_one", BaseUrl = baseUrl }));
     }
 
     [Fact]

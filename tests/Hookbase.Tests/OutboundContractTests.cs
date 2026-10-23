@@ -217,6 +217,29 @@ public class OutboundContractTests
     }
 
     [Fact]
+    public async Task PostWithoutAKey_IsRetriedOn429()
+    {
+        var (client, handler) = Create(maxRetries: 3);
+        handler.Respond(HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}")
+               .Respond(HttpStatusCode.Created, """{ "data": { "originalMessageId": "msg_1", "newMessageId": "msg_2", "status": "queued" } }""");
+
+        await new DlqResource(client).RetryAsync("msg_1");
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.All(handler.Requests, r => Assert.Null(r.IdempotencyKeyHeader));
+    }
+
+    [Fact]
+    public async Task PostWithoutAKey_StopsRetrying429AfterMaxRetries()
+    {
+        var (client, handler) = Create(maxRetries: 1);
+        handler.Respond(HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}")
+               .Respond(HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}");
+
+        await Assert.ThrowsAsync<RateLimitException>(() => new DlqResource(client).RetryAsync("msg_1"));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
     public async Task Get_IsStillRetriedOn5xx()
     {
         var (client, handler) = Create(maxRetries: 3);

@@ -29,7 +29,6 @@ public class ApiClient : IApiClient, IDisposable
     private readonly string _apiKey;
     private readonly TimeSpan _timeout;
     private readonly int _maxRetries;
-    private readonly Random _random = new();
 
     private static readonly JsonSerializerOptions JsonOptions = HookbaseJson.Options;
 
@@ -86,9 +85,10 @@ public class ApiClient : IApiClient, IDisposable
             throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be a positive number of seconds");
         }
 
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri)
+            || (baseUri.Scheme != Uri.UriSchemeHttps && baseUri.Scheme != Uri.UriSchemeHttp))
         {
-            throw new ArgumentException("Base URL must be an absolute URI", nameof(baseUrl));
+            throw new ArgumentException("Base URL must be an absolute http(s) URL", nameof(baseUrl));
         }
 
         _baseUrl = baseUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
@@ -159,9 +159,12 @@ public class ApiClient : IApiClient, IDisposable
                     return await DeserializeResponse<TResponse>(response, attemptToken);
                 }
 
-                // Check if we should retry
+                // Check if we should retry. A 429 is rejected before the API does any work, so it
+                // is safe to repeat for any method; 5xx only when the request is retry-safe.
                 var statusCode = (int)response.StatusCode;
-                if (canRetry && attempt < _maxRetries && RetryableStatusCodes.Contains(statusCode))
+                var retryable = statusCode == (int)HttpStatusCode.TooManyRequests
+                    || (canRetry && RetryableStatusCodes.Contains(statusCode));
+                if (retryable && attempt < _maxRetries)
                 {
                     var delay = CalculateDelay(attempt, response);
                     await Task.Delay(delay, cancellationToken);
@@ -183,10 +186,9 @@ public class ApiClient : IApiClient, IDisposable
             {
                 if (ex is OperationCanceledException && timeoutCts.IsCancellationRequested)
                 {
-                    // Our per-request timeout fired. Report it the way HttpClient.Timeout used to.
-                    ex = new TaskCanceledException(
-                        $"The request was canceled due to the configured HttpClient.Timeout of {_timeout.TotalSeconds} seconds elapsing.",
-                        new TimeoutException(ex.Message, ex));
+                    // Our per-request timeout fired. Same exception types HttpClient.Timeout produces.
+                    var message = $"Request timed out after {_timeout.TotalSeconds} seconds (HookbaseClientOptions.Timeout)";
+                    ex = new TaskCanceledException(message, new TimeoutException(message, ex));
                 }
 
                 if (canRetry && attempt < _maxRetries && ShouldRetryException(ex))
@@ -331,7 +333,7 @@ public class ApiClient : IApiClient, IDisposable
 
         // Exponential backoff with jitter: min(2^attempt, 10) + jitter
         var baseDelay = Math.Min(Math.Pow(2, attempt), 10);
-        var jitter = _random.NextDouble() * 0.3 * baseDelay; // 0-30% jitter
+        var jitter = Random.Shared.NextDouble() * 0.3 * baseDelay; // 0-30% jitter
         return TimeSpan.FromSeconds(baseDelay + jitter);
     }
 
@@ -339,9 +341,11 @@ public class ApiClient : IApiClient, IDisposable
     /// Whether a failed request may be sent again without risking a duplicate side effect.
     /// </summary>
     /// <remarks>
-    /// A POST that failed with a 5xx or a timeout may still have been processed, so sending it
-    /// again could, for example, deliver a webhook twice. POSTs are therefore only retried when
-    /// they carry an idempotency key, which lets the API recognise the repeat.
+    /// A POST that failed with a 5xx, a network error or a timeout may still have been processed,
+    /// so sending it again could, for example, deliver a webhook twice. Those failures are
+    /// therefore only retried for a POST that carries an idempotency key, which lets the API
+    /// recognise the repeat. A 429 does not depend on this: the API rejects it before doing any
+    /// work, so it is retried for every method.
     /// </remarks>
     private static bool IsRetrySafe(HttpMethod method, string? idempotencyKey)
     {
