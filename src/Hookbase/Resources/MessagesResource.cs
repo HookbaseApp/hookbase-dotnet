@@ -63,7 +63,7 @@ public class MessagesResource : BaseResource
     /// Export outbound events or messages of the API key's organization. Returns the response body
     /// as is: a CSV document, or a JSON document (<c>{ exportedAt, organization, count, events | messages }</c>).
     /// </summary>
-    public Task<string> ExportAsync(MessageExportOptions? options, CancellationToken cancellationToken = default)
+    public Task<string> ExportAsync(MessageExportOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new MessageExportOptions();
         return ExportCoreAsync(null, options.Format, options.Type, options.StartDate, options.EndDate,

@@ -77,6 +77,21 @@ public class OutboundAdditionsTests
     }
 
     [Fact]
+    public async Task Export_without_options_or_org_id_sends_the_defaults()
+    {
+        // ExportAsync() must compile: the options parameter defaults to null, and ExportAsync(null)
+        // would be ambiguous with the organization-scoped overload.
+        var (client, t) = TestTransport.Create();
+        t.Respond("""{"exportedAt":"2026-10-20T10:00:00Z","organization":"acme","count":0,"events":[]}""");
+
+        var json = await client.Messages.ExportAsync();
+
+        Assert.Equal("GET /api/outbound-messages/export", $"{t.Last.Method} {t.Last.Path}");
+        Assert.Equal("?format=json&type=events&limit=10000", t.Last.Query);
+        Assert.StartsWith("{\"exportedAt\"", json);
+    }
+
+    [Fact]
     public async Task ListAttempts_maps_the_attempt_rows()
     {
         var (client, t) = TestTransport.Create();
