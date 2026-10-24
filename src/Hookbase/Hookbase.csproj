@@ -14,7 +14,7 @@
     <Description>Official .NET SDK for Hookbase - Webhook relay platform for receiving, transforming, and routing webhooks to multiple destinations</Description>
     <PackageTags>webhooks;api;sdk;hookbase;relay;routing</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/hookbase/hookbase-dotnet</RepositoryUrl>
+    <RepositoryUrl>https://github.com/HookbaseApp/hookbase-dotnet</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://hookbase.app</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>

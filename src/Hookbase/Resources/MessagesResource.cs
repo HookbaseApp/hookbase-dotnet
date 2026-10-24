@@ -8,32 +8,111 @@ namespace Hookbase.Resources;
 /// <summary>
 /// Resource client for managing outbound webhook messages.
 /// </summary>
+/// <remarks>
+/// Every method has an overload without an organization ID: the API resolves the organization
+/// from the API key, as the other Hookbase SDKs do. The overloads that take an organization ID
+/// call the organization-scoped routes, which answer 403 when the ID is not the key's own.
+/// </remarks>
 public class MessagesResource : BaseResource
 {
     public MessagesResource(IApiClient apiClient) : base(apiClient)
     {
     }
 
+    /// <summary>The route prefix: org-scoped when an organization ID is given, else the key's org.</summary>
+    private static string Prefix(string? organizationId) =>
+        organizationId == null ? "/api" : $"/api/organizations/{Uri.EscapeDataString(organizationId)}";
+
     /// <summary>
-    /// Send a new outbound webhook event.
+    /// Send a new outbound webhook event to the API key's organization.
     /// </summary>
     /// <remarks>
     /// The request always carries an idempotency key, in the body and as the <c>Idempotency-Key</c>
     /// header: <see cref="SendMessageRequest.IdempotencyKey"/> when set, otherwise one generated for
     /// this call. A retry after a timeout or 5xx therefore cannot deliver the event twice.
     /// </remarks>
-    public async Task<SendMessageResponse> SendAsync(
+    public Task<SendMessageResponse> SendAsync(
+        SendMessageRequest request,
+        CancellationToken cancellationToken = default) =>
+        SendCoreAsync(null, request, cancellationToken);
+
+    /// <summary>List the API key's organization's outbound messages.</summary>
+    public Task<CursorPage<OutboundMessage>> ListAsync(
+        int limit = 50,
+        string? cursor = null,
+        string? status = null,
+        string? eventType = null,
+        string? applicationId = null,
+        string? endpointId = null,
+        CancellationToken cancellationToken = default) =>
+        ListCoreAsync(null, limit, cursor, status, eventType, applicationId, endpointId, cancellationToken);
+
+    /// <summary>Get a single outbound message by ID.</summary>
+    public Task<OutboundMessage> GetAsync(string id, CancellationToken cancellationToken = default) =>
+        GetCoreAsync(null, id, cancellationToken);
+
+    /// <summary>Replay a failed or exhausted message.</summary>
+    public Task<ReplayMessageResponse> ReplayAsync(string id, CancellationToken cancellationToken = default) =>
+        ReplayCoreAsync(null, id, cancellationToken);
+
+    /// <summary>Get delivery statistics summary.</summary>
+    public Task<MessageStatsSummary> GetStatsSummaryAsync(CancellationToken cancellationToken = default) =>
+        GetStatsSummaryCoreAsync(null, cancellationToken);
+
+    /// <summary>
+    /// Export outbound events or messages of the API key's organization. Returns the response body
+    /// as is: a CSV document, or a JSON document (<c>{ exportedAt, organization, count, events | messages }</c>).
+    /// </summary>
+    public Task<string> ExportAsync(MessageExportOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        options ??= new MessageExportOptions();
+        return ExportCoreAsync(null, options.Format, options.Type, options.StartDate, options.EndDate,
+            options.Status, options.EventType, options.ApplicationId, options.Limit, cancellationToken);
+    }
+
+    /// <summary>
+    /// List every delivery attempt of a message, newest first (<c>GET /outbound-messages/:id/attempts</c>).
+    /// </summary>
+    public async Task<List<MessageAttempt>> ListAttemptsAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await ApiClient.RequestAsync<ListAttemptsResponse>(
+            HttpMethod.Get,
+            $"/api/outbound-messages/{Uri.EscapeDataString(id)}/attempts",
+            cancellationToken: cancellationToken
+        );
+
+        return response.Data;
+    }
+
+    /// <summary>
+    /// Send a new outbound webhook event through the organization-scoped route.
+    /// <paramref name="organizationId"/> must be the API key's organization; the overload without
+    /// it does the same.
+    /// </summary>
+    /// <remarks>
+    /// The request always carries an idempotency key, in the body and as the <c>Idempotency-Key</c>
+    /// header: <see cref="SendMessageRequest.IdempotencyKey"/> when set, otherwise one generated for
+    /// this call. A retry after a timeout or 5xx therefore cannot deliver the event twice.
+    /// </remarks>
+    public Task<SendMessageResponse> SendAsync(
         string organizationId,
         SendMessageRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        SendCoreAsync(organizationId, request, cancellationToken);
+
+    private async Task<SendMessageResponse> SendCoreAsync(
+        string? organizationId,
+        SendMessageRequest request,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
 #pragma warning disable CS0618 // EventId is obsolete; honour it as the key it was documented to be.
         var idempotencyKey = request.IdempotencyKey ?? request.EventId ?? GenerateIdempotencyKey();
 #pragma warning restore CS0618
 
         var response = await ApiClient.RequestAsync<SendMessageDataResponse>(
             HttpMethod.Post,
-            $"/api/organizations/{Uri.EscapeDataString(organizationId)}/send-event",
+            Prefix(organizationId) + "/send-event",
             body: BuildSendEventBody(request, idempotencyKey),
             idempotencyKey: idempotencyKey,
             cancellationToken: cancellationToken
@@ -72,6 +151,7 @@ public class MessagesResource : BaseResource
         if (request.Labels != null) body["labels"] = request.Labels;
         if (request.Metadata != null) body["metadata"] = request.Metadata;
         if (request.Priority != null) body["priority"] = request.Priority.Value;
+        if (request.EventVersion != null) body["eventVersion"] = request.EventVersion;
 
         return body;
     }
@@ -79,7 +159,7 @@ public class MessagesResource : BaseResource
     /// <summary>
     /// List outbound messages with filtering.
     /// </summary>
-    public async Task<CursorPage<OutboundMessage>> ListAsync(
+    public Task<CursorPage<OutboundMessage>> ListAsync(
         string organizationId,
         int limit = 50,
         string? cursor = null,
@@ -87,7 +167,18 @@ public class MessagesResource : BaseResource
         string? eventType = null,
         string? applicationId = null,
         string? endpointId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ListCoreAsync(organizationId, limit, cursor, status, eventType, applicationId, endpointId, cancellationToken);
+
+    private async Task<CursorPage<OutboundMessage>> ListCoreAsync(
+        string? organizationId,
+        int limit,
+        string? cursor,
+        string? status,
+        string? eventType,
+        string? applicationId,
+        string? endpointId,
+        CancellationToken cancellationToken)
     {
         var queryParams = new Dictionary<string, string> { ["limit"] = limit.ToString() };
         if (cursor != null) queryParams["cursor"] = cursor;
@@ -98,7 +189,7 @@ public class MessagesResource : BaseResource
 
         var response = await ApiClient.RequestAsync<ListMessagesResponse>(
             HttpMethod.Get,
-            $"/api/organizations/{Uri.EscapeDataString(organizationId)}/outbound-messages",
+            Prefix(organizationId) + "/outbound-messages",
             queryParams: queryParams,
             cancellationToken: cancellationToken
         );
@@ -114,14 +205,17 @@ public class MessagesResource : BaseResource
     /// <summary>
     /// Get a single outbound message by ID.
     /// </summary>
-    public async Task<OutboundMessage> GetAsync(
+    public Task<OutboundMessage> GetAsync(
         string organizationId,
         string id,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        GetCoreAsync(organizationId, id, cancellationToken);
+
+    private async Task<OutboundMessage> GetCoreAsync(string? organizationId, string id, CancellationToken cancellationToken)
     {
         var response = await ApiClient.RequestAsync<GetMessageResponse>(
             HttpMethod.Get,
-            $"/api/organizations/{Uri.EscapeDataString(organizationId)}/outbound-messages/{Uri.EscapeDataString(id)}",
+            Prefix(organizationId) + $"/outbound-messages/{Uri.EscapeDataString(id)}",
             cancellationToken: cancellationToken
         );
 
@@ -131,14 +225,17 @@ public class MessagesResource : BaseResource
     /// <summary>
     /// Replay a failed or exhausted message.
     /// </summary>
-    public async Task<ReplayMessageResponse> ReplayAsync(
+    public Task<ReplayMessageResponse> ReplayAsync(
         string organizationId,
         string id,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ReplayCoreAsync(organizationId, id, cancellationToken);
+
+    private async Task<ReplayMessageResponse> ReplayCoreAsync(string? organizationId, string id, CancellationToken cancellationToken)
     {
         var response = await ApiClient.RequestAsync<ReplayMessageDataResponse>(
             HttpMethod.Post,
-            $"/api/organizations/{Uri.EscapeDataString(organizationId)}/outbound-messages/{Uri.EscapeDataString(id)}/replay",
+            Prefix(organizationId) + $"/outbound-messages/{Uri.EscapeDataString(id)}/replay",
             cancellationToken: cancellationToken
         );
 
@@ -148,13 +245,16 @@ public class MessagesResource : BaseResource
     /// <summary>
     /// Get delivery statistics summary.
     /// </summary>
-    public async Task<MessageStatsSummary> GetStatsSummaryAsync(
+    public Task<MessageStatsSummary> GetStatsSummaryAsync(
         string organizationId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        GetStatsSummaryCoreAsync(organizationId, cancellationToken);
+
+    private async Task<MessageStatsSummary> GetStatsSummaryCoreAsync(string? organizationId, CancellationToken cancellationToken)
     {
         var response = await ApiClient.RequestAsync<GetStatsSummaryResponse>(
             HttpMethod.Get,
-            $"/api/organizations/{Uri.EscapeDataString(organizationId)}/outbound-messages/stats/summary",
+            Prefix(organizationId) + "/outbound-messages/stats/summary",
             cancellationToken: cancellationToken
         );
 
@@ -165,7 +265,7 @@ public class MessagesResource : BaseResource
     /// Export outbound events or messages. Returns the response body as is: a CSV document, or a
     /// JSON document (<c>{ exportedAt, organization, count, events | messages }</c>).
     /// </summary>
-    public async Task<string> ExportAsync(
+    public Task<string> ExportAsync(
         string organizationId,
         string format = "json",
         string type = "events",
@@ -175,7 +275,20 @@ public class MessagesResource : BaseResource
         string? eventType = null,
         string? applicationId = null,
         int limit = 10000,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ExportCoreAsync(organizationId, format, type, startDate, endDate, status, eventType, applicationId, limit, cancellationToken);
+
+    private async Task<string> ExportCoreAsync(
+        string? organizationId,
+        string format,
+        string type,
+        string? startDate,
+        string? endDate,
+        string? status,
+        string? eventType,
+        string? applicationId,
+        int limit,
+        CancellationToken cancellationToken)
     {
         var queryParams = new Dictionary<string, string>
         {
@@ -193,7 +306,7 @@ public class MessagesResource : BaseResource
         // A string response type returns the raw body rather than parsing it as JSON.
         return await ApiClient.RequestAsync<string>(
             HttpMethod.Get,
-            $"/api/organizations/{Uri.EscapeDataString(organizationId)}/outbound-messages/export",
+            Prefix(organizationId) + "/outbound-messages/export",
             queryParams: queryParams,
             cancellationToken: cancellationToken
         );
@@ -219,6 +332,11 @@ public class MessagesResource : BaseResource
     private record ReplayMessageDataResponse
     {
         public required ReplayMessageResponse Data { get; init; }
+    }
+
+    private record ListAttemptsResponse
+    {
+        public required List<MessageAttempt> Data { get; init; }
     }
 
     private record GetStatsSummaryResponse

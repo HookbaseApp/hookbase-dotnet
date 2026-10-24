@@ -50,6 +50,7 @@ public record UpdateTransformRequest
     public string? TransformType { get; init; }
     public string? InputFormat { get; init; }
     public string? OutputFormat { get; init; }
+    public bool? IsActive { get; init; }
 }
 
 /// <summary>
@@ -59,6 +60,15 @@ public record TestTransformRequest
 {
     public required string Code { get; init; }
     public required Dictionary<string, object> Payload { get; init; }
+
+    /// <summary><c>jsonata</c> (API default), <c>javascript</c>, <c>liquid</c> or <c>xslt</c>.</summary>
+    public string? TransformType { get; init; }
+
+    /// <summary>Input format; the API defaults to <c>json</c>.</summary>
+    public string? InputFormat { get; init; }
+
+    /// <summary>Output format; the API defaults to <c>json</c>.</summary>
+    public string? OutputFormat { get; init; }
 }
 
 /// <summary>

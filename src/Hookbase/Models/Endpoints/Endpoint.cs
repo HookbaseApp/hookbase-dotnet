@@ -43,8 +43,13 @@ public record Endpoint
     public int? CircuitFailureThreshold { get; init; }
     public int? CircuitSuccessThreshold { get; init; }
     public int? CircuitCooldownSeconds { get; init; }
+    [Obsolete("The API does not return filterTypes; it is always null.")]
     public List<string>? FilterTypes { get; init; }
+
+    [Obsolete("The API does not return rateLimit; it is always null. Use RateLimitPerSecond.")]
     public int? RateLimit { get; init; }
+
+    [Obsolete("The API does not return rateLimitPeriod; it is always null. Use RateLimitPerSecond.")]
     public int? RateLimitPeriod { get; init; }
 
     /// <summary>Maximum deliveries per second for this endpoint (0-1000).</summary>
@@ -65,6 +70,7 @@ public record Endpoint
     /// <summary>Free-form notes about the customer's IP allowlist.</summary>
     public string? IpAllowlistNotes { get; init; }
 
+    [Obsolete("The API does not return metadata for endpoints; it is always null.")]
     public Dictionary<string, object>? Metadata { get; init; }
 
     [JsonConverter(typeof(BooleanConverter))]

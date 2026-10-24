@@ -113,7 +113,27 @@ public record CreateCronGroupRequest
 public record CronJobExecution
 {
     public string? Id { get; init; }
+    public string? CronJobId { get; init; }
     public string? Status { get; init; }
     public int? ResponseStatus { get; init; }
+    public string? ResponseBody { get; init; }
+
+    private readonly string? _errorMessage;
+
+    /// <summary>
+    /// Why the run failed (timeout, connection error), or null. The execution list sends it as
+    /// <c>errorMessage</c>, a failed <c>TriggerAsync</c> as <c>error</c>; both land here.
+    /// </summary>
+    public string? ErrorMessage
+    {
+        get => _errorMessage ?? Error;
+        init => _errorMessage = value;
+    }
+
+    /// <summary>The <c>error</c> field a failed manual trigger returns. See <see cref="ErrorMessage"/>.</summary>
+    public string? Error { get; init; }
+
     public int LatencyMs { get; init; }
+    public string? StartedAt { get; init; }
+    public string? CompletedAt { get; init; }
 }

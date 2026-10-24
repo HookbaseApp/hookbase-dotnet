@@ -14,15 +14,30 @@ public class EventTypesResource : BaseResource
     {
     }
 
-    public async Task<CursorPage<EventType>> ListAsync(
+    /// <summary>
+    /// List event types. Event types belong to the organization, not to an application: the API
+    /// has no application filter and ignores <paramref name="applicationId"/>, so it is no longer
+    /// sent. Use <see cref="ListAsync(EventTypeListOptions, CancellationToken)"/> to filter by
+    /// category, enabled state or search text.
+    /// </summary>
+    public Task<CursorPage<EventType>> ListAsync(
         int limit = 50,
         string? cursor = null,
         string? applicationId = null,
+        CancellationToken cancellationToken = default) =>
+        ListAsync(new EventTypeListOptions { Limit = limit, Cursor = cursor }, cancellationToken);
+
+    /// <summary>List event types with the filters the API supports.</summary>
+    public async Task<CursorPage<EventType>> ListAsync(
+        EventTypeListOptions options,
         CancellationToken cancellationToken = default)
     {
-        var queryParams = new Dictionary<string, string> { ["limit"] = limit.ToString() };
-        if (cursor != null) queryParams["cursor"] = cursor;
-        if (applicationId != null) queryParams["applicationId"] = applicationId;
+        ArgumentNullException.ThrowIfNull(options);
+        var queryParams = new Dictionary<string, string> { ["limit"] = options.Limit.ToString() };
+        if (options.Cursor != null) queryParams["cursor"] = options.Cursor;
+        if (options.Category != null) queryParams["category"] = options.Category;
+        if (options.IsEnabled != null) queryParams["isEnabled"] = options.IsEnabled.Value ? "true" : "false";
+        if (options.Search != null) queryParams["search"] = options.Search;
 
         var response = await ApiClient.RequestAsync<ListEventTypesResponse>(
             HttpMethod.Get,
@@ -98,4 +113,17 @@ public class EventTypesResource : BaseResource
     {
         public bool Success { get; init; }
     }
+}
+
+/// <summary>Filters for <see cref="EventTypesResource.ListAsync(EventTypeListOptions, CancellationToken)"/>.</summary>
+public record EventTypeListOptions
+{
+    /// <summary>Page size, at most 100. Default 50.</summary>
+    public int Limit { get; init; } = 50;
+    public string? Cursor { get; init; }
+    public string? Category { get; init; }
+    public bool? IsEnabled { get; init; }
+
+    /// <summary>Matches the name, display name or description.</summary>
+    public string? Search { get; init; }
 }

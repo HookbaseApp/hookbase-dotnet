@@ -131,3 +131,41 @@ public class JsonRawStringConverter : JsonConverter<string?>
             writer.WriteStringValue(value);
     }
 }
+
+/// <summary>
+/// Reads a value the API sends either as JSON or as JSON-encoded text (a <c>text</c> column a
+/// plpgsql function returns unparsed, such as a route's <c>filterConditions</c>): a string is
+/// parsed as JSON into <typeparamref name="T"/>, anything else is read directly. Text that is
+/// not valid JSON for <typeparamref name="T"/> reads as null instead of failing the response.
+/// Writes <typeparamref name="T"/> as plain JSON.
+/// </summary>
+public class JsonTextOrValueConverter<T> : JsonConverter<T?> where T : class
+{
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var text = reader.GetString();
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+            try
+            {
+                return JsonSerializer.Deserialize<T>(text, options);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        return JsonSerializer.Deserialize<T>(ref reader, options);
+    }
+
+    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
+    {
+        JsonSerializer.Serialize(writer, value, options);
+    }
+}

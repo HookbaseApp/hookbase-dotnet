@@ -118,6 +118,27 @@ public class CronJobsResource : BaseResource
     }
 
     /// <summary>
+    /// List a cron job's recent executions, newest first.
+    /// </summary>
+    /// <param name="id">Cron job ID.</param>
+    /// <param name="limit">How many to return (API default 20, maximum 100).</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    public async Task<List<CronJobExecution>> ListExecutionsAsync(
+        string id,
+        int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await ApiClient.RequestAsync<ListExecutionsResponse>(
+            HttpMethod.Get,
+            $"/api/cron/{Uri.EscapeDataString(id)}/executions",
+            queryParams: new Dictionary<string, string> { ["limit"] = limit.ToString() },
+            cancellationToken: cancellationToken
+        );
+
+        return response.Executions;
+    }
+
+    /// <summary>
     /// List cron groups.
     /// </summary>
     public async Task<List<CronGroup>> ListGroupsAsync(CancellationToken cancellationToken = default)
@@ -163,6 +184,11 @@ public class CronJobsResource : BaseResource
     private record TriggerCronJobResponse
     {
         public required CronJobExecution Execution { get; init; }
+    }
+
+    private record ListExecutionsResponse
+    {
+        public required List<CronJobExecution> Executions { get; init; }
     }
 
     private record ListCronGroupsResponse

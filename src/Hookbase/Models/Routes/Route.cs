@@ -21,6 +21,9 @@ public record Route
     public string? SourceId { get; init; }
     public string? DestinationId { get; init; }
     public string? FilterId { get; init; }
+
+    /// <summary>Inline filter conditions. The list and get send them as JSON text; both forms are read.</summary>
+    [JsonConverter(typeof(JsonTextOrValueConverter<List<FilterCondition>>))]
     public List<FilterCondition>? FilterConditions { get; init; }
     public string? FilterLogic { get; init; }
     public string? TransformId { get; init; }
@@ -131,6 +134,8 @@ public record CircuitBreakerStatus
 /// </summary>
 public record BulkDeleteRoutesRequest
 {
+    /// <summary>The route ids, sent as <c>ids</c> (the only name the API reads; <c>routeIds</c> was always a 400).</summary>
+    [JsonPropertyName("ids")]
     public required List<string> RouteIds { get; init; }
 }
 
@@ -148,6 +153,8 @@ public record BulkDeleteResult
 /// </summary>
 public record BulkUpdateRoutesRequest
 {
+    /// <summary>The route ids, sent as <c>ids</c> (the only name the API reads; <c>routeIds</c> was always a 400).</summary>
+    [JsonPropertyName("ids")]
     public required List<string> RouteIds { get; init; }
     public required bool IsActive { get; init; }
 }

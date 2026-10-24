@@ -22,6 +22,10 @@ namespace Hookbase.Webhooks;
 /// <c>v1a,&lt;base64&gt;</c> entries. The public key is <see cref="Models.Endpoints.Endpoint.PublicKey"/>
 /// (or <see cref="Models.Endpoints.RotateSecretResult.PublicKey"/> after a rotation); Hookbase keeps
 /// the private key and never returns it.</description></item>
+/// <item><description><c>whsk_...</c> (Ed25519 secret key, base64 of the 32-byte seed followed by
+/// the 32-byte public key): verifies <c>v1a</c> entries with the public half and can also sign, so
+/// <see cref="GenerateTestHeaders"/> produces <c>v1a</c> headers. Hookbase never hands these out;
+/// use one you generated yourself, in tests.</description></item>
 /// </list>
 /// <para>
 /// Both schemes sign <c>{webhook-id}.{webhook-timestamp}.{body}</c>, apply the same timestamp
@@ -29,20 +33,27 @@ namespace Hookbase.Webhooks;
 /// rotation the header carries the previous and the new signature). Entries of the other version
 /// are ignored. Instances are immutable and thread-safe.
 /// </para>
+/// <para>
+/// <see cref="GenerateTestHeaders"/> signs a payload the way Hookbase does, for testing a webhook
+/// handler: with the HMAC secret for <c>whsec_</c>, or with the private key for <c>whsk_</c>.
+/// </para>
 /// </remarks>
 public class WebhookVerifier
 {
     /// <summary>Value of <see cref="SignatureScheme"/> for a <c>whsec_</c> secret.</summary>
     public const string HmacSha256 = "hmac-sha256";
 
-    /// <summary>Value of <see cref="SignatureScheme"/> for a <c>whpk_</c> public key.</summary>
+    /// <summary>Value of <see cref="SignatureScheme"/> for a <c>whpk_</c> public key or <c>whsk_</c> secret key.</summary>
     public const string Ed25519 = "ed25519";
 
     private const string PublicKeyPrefix = "whpk_";
+    private const string SecretKeyPrefix = "whsk_";
 
-    // Exactly one of these is set, by the constructor.
+    // Exactly one of _secretKey and _publicKey is set, by the constructor. _privateKey is set
+    // (alongside _publicKey) only for a whsk_ key.
     private readonly byte[]? _secretKey;
     private readonly Ed25519PublicKeyParameters? _publicKey;
+    private readonly Ed25519PrivateKeyParameters? _privateKey;
 
     /// <summary>
     /// The scheme this verifier checks: <see cref="HmacSha256"/> (<c>v1</c> entries) or
@@ -55,7 +66,9 @@ public class WebhookVerifier
     /// </summary>
     /// <param name="secret">The endpoint's verification key: 'whsec_' + base64 (HMAC endpoint secrets),
     /// 'whsec_op_' + base64 (operational webhook secrets), a legacy 64-character hex secret, or
-    /// 'whpk_' + base64 of a 32-byte Ed25519 public key (endpoints whose signature scheme is ed25519).</param>
+    /// 'whpk_' + base64 of a 32-byte Ed25519 public key (endpoints whose signature scheme is ed25519), or
+    /// 'whsk_' + base64 of a 64-byte Ed25519 secret key (32-byte seed followed by its 32-byte public
+    /// key), which also lets <see cref="GenerateTestHeaders"/> sign <c>v1a</c> headers.</param>
     /// <exception cref="ArgumentException">The key is empty or cannot be decoded.</exception>
     public WebhookVerifier(string secret)
     {
@@ -68,6 +81,13 @@ public class WebhookVerifier
         if (secret.StartsWith(PublicKeyPrefix, StringComparison.Ordinal))
         {
             _publicKey = DecodePublicKey(secret.Substring(PublicKeyPrefix.Length));
+            SignatureScheme = Ed25519;
+            return;
+        }
+
+        if (secret.StartsWith(SecretKeyPrefix, StringComparison.Ordinal))
+        {
+            (_privateKey, _publicKey) = DecodeSecretKey(secret.Substring(SecretKeyPrefix.Length));
             SignatureScheme = Ed25519;
             return;
         }
@@ -110,6 +130,39 @@ public class WebhookVerifier
     /// <exception cref="WebhookVerificationException">Thrown if verification fails</exception>
     public T Verify<T>(string payload, IDictionary<string, string> headers, TimeSpan? tolerance = null)
     {
+        VerifyHeaders(payload, headers, tolerance);
+
+        // Deserialize payload
+        try
+        {
+            var result = JsonSerializer.Deserialize<T>(payload, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null)
+            {
+                throw new WebhookVerificationException("Failed to deserialize payload: result is null");
+            }
+
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            throw new WebhookVerificationException($"Failed to deserialize payload: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Checks the headers and signature of a webhook without deserializing the payload, so a body
+    /// that is not a JSON object (or not JSON at all) still verifies when its signature is valid.
+    /// </summary>
+    /// <exception cref="WebhookVerificationException">A header is missing or malformed, the
+    /// timestamp is outside <paramref name="tolerance"/>, or no signature matches.</exception>
+    private void VerifyHeaders(string payload, IDictionary<string, string> headers, TimeSpan? tolerance)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentNullException.ThrowIfNull(headers);
         tolerance ??= TimeSpan.FromMinutes(5);
 
         // Extract required headers (case-insensitive)
@@ -129,7 +182,11 @@ public class WebhookVerifier
         }
 
         // Parse and validate timestamp
-        if (!long.TryParse(timestampStr, out var timestamp))
+        // Unix seconds as plain digits. A value DateTimeOffset cannot represent is invalid too,
+        // rather than an ArgumentOutOfRangeException escaping VerifySignature.
+        if (!long.TryParse(timestampStr, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var timestamp)
+            || timestamp > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
         {
             throw new WebhookVerificationException("Invalid webhook-timestamp format");
         }
@@ -172,42 +229,82 @@ public class WebhookVerifier
         {
             throw new WebhookVerificationException("Signature verification failed");
         }
-
-        // Deserialize payload
-        try
-        {
-            var result = JsonSerializer.Deserialize<T>(payload, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (result == null)
-            {
-                throw new WebhookVerificationException("Failed to deserialize payload: result is null");
-            }
-
-            return result;
-        }
-        catch (JsonException ex)
-        {
-            throw new WebhookVerificationException($"Failed to deserialize payload: {ex.Message}", ex);
-        }
     }
 
     /// <summary>
-    /// Verifies a webhook signature without deserializing.
+    /// Verifies a webhook signature without deserializing: true when the headers are present, the
+    /// timestamp is within <paramref name="tolerance"/> and a signature matches, whatever the body
+    /// contains. Use <see cref="Verify{T}"/> for the reason a check failed.
     /// </summary>
     public bool VerifySignature(string payload, IDictionary<string, string> headers, TimeSpan? tolerance = null)
     {
         try
         {
-            Verify<Dictionary<string, object>>(payload, headers, tolerance);
+            VerifyHeaders(payload, headers, tolerance);
             return true;
         }
         catch (WebhookVerificationException)
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Generates valid <c>webhook-id</c>, <c>webhook-timestamp</c> and <c>webhook-signature</c>
+    /// headers for <paramref name="payload"/>, for testing a webhook handler. The result passes
+    /// <see cref="Verify{T}"/> on a verifier with the same key (or, for <c>whsk_</c>, with the
+    /// matching <c>whpk_</c> public key).
+    /// </summary>
+    /// <param name="payload">The exact body to sign.</param>
+    /// <param name="webhookId">The <c>webhook-id</c> to use; a random <c>msg_...</c> id when omitted.</param>
+    /// <param name="timestamp">The time to sign; now when omitted. Sent as Unix seconds.</param>
+    /// <returns>The three headers. The signature is <c>v1,&lt;base64&gt;</c> for an HMAC secret and
+    /// <c>v1a,&lt;base64&gt;</c> for a <c>whsk_</c> Ed25519 secret key.</returns>
+    /// <exception cref="InvalidOperationException">This verifier holds only an Ed25519 public key
+    /// (<c>whpk_</c>), which cannot sign.</exception>
+    public Dictionary<string, string> GenerateTestHeaders(
+        string payload,
+        string? webhookId = null,
+        DateTimeOffset? timestamp = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (_publicKey != null && _privateKey == null)
+        {
+            throw new InvalidOperationException(
+                "Cannot generate test headers with an Ed25519 public key (whpk_); use the matching secret key (whsk_)");
+        }
+
+        var id = string.IsNullOrEmpty(webhookId) ? NewWebhookId() : webhookId;
+        var ts = (timestamp ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var signedContent = Encoding.UTF8.GetBytes($"{id}.{ts}.{payload}");
+
+        string entry;
+        if (_privateKey != null)
+        {
+            var signer = new Ed25519Signer();
+            signer.Init(true, _privateKey);
+            signer.BlockUpdate(signedContent, 0, signedContent.Length);
+            entry = "v1a," + Convert.ToBase64String(signer.GenerateSignature());
+        }
+        else
+        {
+            using var hmac = new HMACSHA256(_secretKey!);
+            entry = "v1," + Convert.ToBase64String(hmac.ComputeHash(signedContent));
+        }
+
+        return new Dictionary<string, string>
+        {
+            ["webhook-id"] = id,
+            ["webhook-timestamp"] = ts,
+            ["webhook-signature"] = entry,
+        };
+    }
+
+    private static string NewWebhookId()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(18);
+        return "msg_" + Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
     private bool VerifyHmac(string signedContent, List<string> signatures)
@@ -283,6 +380,50 @@ public class WebhookVerifier
         catch (ArgumentException ex)
         {
             throw new ArgumentException("Invalid public key - not a valid Ed25519 point", "secret", ex);
+        }
+    }
+
+    /// <summary>
+    /// Decodes a <c>whsk_</c> body: base64 of the 32-byte seed followed by the 32-byte public key,
+    /// as the server, the Python SDK and the Java SDK encode it. The public half must be the one the
+    /// seed derives. Error messages never include key material.
+    /// </summary>
+    private static (Ed25519PrivateKeyParameters Private, Ed25519PublicKeyParameters Public) DecodeSecretKey(string base64)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(base64);
+        }
+        catch (FormatException ex)
+        {
+            throw new ArgumentException("Invalid secret key format - 'whsk_' must be followed by base64", "secret", ex);
+        }
+
+        var seedSize = Ed25519PrivateKeyParameters.KeySize;
+        var publicSize = Ed25519PublicKeyParameters.KeySize;
+        try
+        {
+            if (bytes.Length != seedSize + publicSize)
+            {
+                throw new ArgumentException(
+                    $"Invalid secret key - an Ed25519 secret key is {seedSize + publicSize} bytes (seed || public key), got {bytes.Length}", "secret");
+            }
+
+            var privateKey = new Ed25519PrivateKeyParameters(bytes, 0);
+            var derived = privateKey.GeneratePublicKey().GetEncoded();
+            var supplied = bytes.AsSpan(seedSize, publicSize);
+            if (!CryptographicOperations.FixedTimeEquals(derived, supplied))
+            {
+                throw new ArgumentException(
+                    "Invalid secret key - the public key half does not match the seed", "secret");
+            }
+
+            return (privateKey, privateKey.GeneratePublicKey());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(bytes);
         }
     }
 

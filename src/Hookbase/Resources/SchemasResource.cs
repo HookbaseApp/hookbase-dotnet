@@ -58,14 +58,23 @@ public class SchemasResource : BaseResource
         CreateSchemaRequest request,
         CancellationToken cancellationToken = default)
     {
-        var response = await ApiClient.RequestAsync<GetSchemaResponse>(
+        var response = await ApiClient.RequestAsync<CreateSchemaResponse>(
             HttpMethod.Post,
             "/api/schemas",
             body: request,
             cancellationToken: cancellationToken
         );
 
-        return response.Schema;
+        // The create response names the schema body json_schema (snake_case); map it.
+        var created = response.Schema;
+        return new Schema
+        {
+            Id = created.Id,
+            Name = created.Name,
+            Slug = created.Slug,
+            Description = created.Description,
+            JsonSchema = created.JsonSchema ?? created.JsonSchemaSnake,
+        };
     }
 
     /// <summary>
@@ -103,10 +112,14 @@ public class SchemasResource : BaseResource
         ValidateSchemaRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(request.SchemaId);
+
+        // The route is POST /api/schemas/:schemaId/validate with { payload }; the old
+        // /api/schemas/validate path matched no route.
         return await ApiClient.RequestAsync<ValidateSchemaResult>(
             HttpMethod.Post,
-            "/api/schemas/validate",
-            body: request,
+            $"/api/schemas/{Uri.EscapeDataString(request.SchemaId)}/validate",
+            body: new { payload = request.Payload },
             cancellationToken: cancellationToken
         );
     }
@@ -115,6 +128,23 @@ public class SchemasResource : BaseResource
     private record ListSchemasResponse
     {
         public required List<Schema> Schemas { get; init; }
+    }
+
+    private record CreateSchemaResponse
+    {
+        public required CreatedSchema Schema { get; init; }
+    }
+
+    private record CreatedSchema
+    {
+        public string? Id { get; init; }
+        public string? Name { get; init; }
+        public string? Slug { get; init; }
+        public string? Description { get; init; }
+        public object? JsonSchema { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("json_schema")]
+        public object? JsonSchemaSnake { get; init; }
     }
 
     private record GetSchemaResponse

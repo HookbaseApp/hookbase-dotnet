@@ -37,7 +37,7 @@ public class EventsResource : BaseResource
 
         if (cursor != null) queryParams["cursor"] = cursor;
         if (sourceId != null) queryParams["sourceId"] = sourceId;
-        if (status.HasValue) queryParams["status"] = status.Value.ToString().ToLower();
+        if (status.HasValue) queryParams["status"] = Hookbase.Json.WireNames.SnakeCase(status.Value);
 
         var response = await ApiClient.RequestAsync<ListEventsResponse>(
             HttpMethod.Get,
@@ -155,11 +155,26 @@ public class EventsResource : BaseResource
     /// </summary>
     public async Task<EventDebugInfo> DebugAsync(string id, CancellationToken cancellationToken = default)
     {
-        return await ApiClient.RequestAsync<EventDebugInfo>(
+        var info = await ApiClient.RequestAsync<EventDebugInfo>(
             HttpMethod.Get,
             $"/api/events/{Uri.EscapeDataString(id)}/debug",
             cancellationToken: cancellationToken
         );
+
+        // The API puts the headers under request and the payload at the top level, not on event.
+        if (info.Event != null)
+        {
+            info = info with
+            {
+                Event = info.Event with
+                {
+                    Headers = info.Event.Headers ?? info.Request?.Headers,
+                    Payload = info.Event.Payload ?? info.Payload,
+                }
+            };
+        }
+
+        return info;
     }
 
     // Internal response types
