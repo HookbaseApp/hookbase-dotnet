@@ -117,9 +117,10 @@ public class DeliveriesResource : BaseResource
 
     private static Dictionary<string, object> ReplayBody(ReplayDeliveryRequest request)
     {
-        // A default JsonElement (ValueKind Undefined) has nothing to send; treat it as unset.
-        var modified = request.ModifiedPayload is { ValueKind: not JsonValueKind.Undefined } m ? m : (JsonElement?)null;
-        var patch = request.PayloadPatch is { ValueKind: not JsonValueKind.Undefined } p ? p : (JsonElement?)null;
+        // A default JsonElement (ValueKind Undefined) has nothing to send, and the API would take a
+        // JSON null as an edit (replay a literal null); treat both as unset.
+        var modified = request.ModifiedPayload is { ValueKind: not (JsonValueKind.Undefined or JsonValueKind.Null) } m ? m : (JsonElement?)null;
+        var patch = request.PayloadPatch is { ValueKind: not (JsonValueKind.Undefined or JsonValueKind.Null) } p ? p : (JsonElement?)null;
 
         if (modified != null && patch != null)
         {

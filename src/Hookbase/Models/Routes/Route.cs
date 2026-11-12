@@ -42,8 +42,9 @@ public record Route
 
     /// <summary>
     /// While the circuit is open, hold this route's deliveries (status <c>held</c>, spending no
-    /// attempts) and release them once the destination recovers, instead of failing them. On by
-    /// default. Holds need a plan with the circuit breaker.
+    /// attempts) and release them once the destination recovers. On by default. Holds need a plan
+    /// with the circuit breaker. When false, a delivery that comes up while the circuit is open is
+    /// dead-lettered at once (reason <c>circuit_breaker_open</c>); it is not retried.
     /// </summary>
     [JsonConverter(typeof(BooleanConverter))]
     public bool HoldOnCircuitOpen { get; init; } = true;
@@ -112,8 +113,8 @@ public record CreateRouteRequest
     public bool? NotifyOnSuccess { get; init; }
     public bool? NotifyOnRecovery { get; init; }
     /// <summary>
-    /// Hold deliveries while the circuit is open instead of failing them (see
-    /// <see cref="Route.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// Hold deliveries while the circuit is open; false dead-letters them at once, without retries
+    /// (see <see cref="Route.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
     /// </summary>
     public bool? HoldOnCircuitOpen { get; init; }
 }
@@ -139,8 +140,8 @@ public record UpdateRouteRequest
     public bool? NotifyOnSuccess { get; init; }
     public bool? NotifyOnRecovery { get; init; }
     /// <summary>
-    /// Hold deliveries while the circuit is open instead of failing them (see
-    /// <see cref="Route.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// Hold deliveries while the circuit is open; false dead-letters them at once, without retries
+    /// (see <see cref="Route.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
     /// </summary>
     public bool? HoldOnCircuitOpen { get; init; }
 }

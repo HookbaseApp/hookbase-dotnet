@@ -1,4 +1,6 @@
 using Hookbase.Json;
+using Hookbase.Models.Common;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Models.Endpoints;
@@ -46,7 +48,10 @@ public record Endpoint
 
     /// <summary>
     /// While the circuit is open, hold this endpoint's messages (status <c>held</c>, spending no
-    /// attempts) and release them once it recovers, instead of failing them. On by default.
+    /// attempts) and release them once it recovers. On by default. When false, a message that comes
+    /// up while the circuit is open is dead-lettered at once (reason <c>circuit_breaker_open</c>); it
+    /// is not retried. Replays and messages on a FIFO endpoint are neither held nor dead-lettered this
+    /// way; they keep waiting out the circuit as before.
     /// </summary>
     [JsonConverter(typeof(BooleanConverter))]
     public bool HoldOnCircuitOpen { get; init; } = true;
@@ -122,6 +127,10 @@ public record Endpoint
 
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="Secret"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(Endpoint), false, nameof(Secret));
 }
 
 /// <summary>
@@ -130,6 +139,10 @@ public record Endpoint
 public record EndpointWithSecret : Endpoint
 {
     public new string? Secret { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="Secret"/> redacted.</summary>
+    protected override bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(EndpointWithSecret), base.PrintMembers(builder), nameof(Secret));
 }
 
 /// <summary>
@@ -193,8 +206,8 @@ public record CreateEndpointRequest
     public int? CircuitCooldownSeconds { get; init; }
 
     /// <summary>
-    /// Hold messages while the circuit is open instead of failing them (see
-    /// <see cref="Endpoint.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// Hold messages while the circuit is open; false dead-letters them at once, without retries
+    /// (see <see cref="Endpoint.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
     /// </summary>
     public bool? HoldOnCircuitOpen { get; init; }
 
@@ -284,8 +297,8 @@ public record UpdateEndpointRequest
     public int? CircuitCooldownSeconds { get; init; }
 
     /// <summary>
-    /// Hold messages while the circuit is open instead of failing them (see
-    /// <see cref="Endpoint.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// Hold messages while the circuit is open; false dead-letters them at once, without retries
+    /// (see <see cref="Endpoint.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
     /// </summary>
     public bool? HoldOnCircuitOpen { get; init; }
 
@@ -385,6 +398,10 @@ public record RotateSecretResult
 
     public string? PreviousSecretExpiresAt { get; init; }
     public int? SecretVersion { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="Secret"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(RotateSecretResult), false, nameof(Secret));
 }
 
 /// <summary>

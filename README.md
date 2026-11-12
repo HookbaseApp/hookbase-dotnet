@@ -133,7 +133,8 @@ var destination = await client.Destinations.CreateAsync(new CreateDestinationReq
     Name = "Orders service",
     Url = "https://orders.example.com/webhooks"
 });
-Console.WriteLine(destination.SigningSecret); // whsec_...
+// Keep the whsec_ secret where your receiver reads it (a secret store, not a log).
+await secretStore.SaveAsync("orders-service/hookbase-signing-secret", destination.SigningSecret!);
 
 var secret = await client.Destinations.RevealSecretAsync(destination.Id!);
 // The previous secret keeps signing alongside the new one for the grace period (default 3600 s).
@@ -533,13 +534,17 @@ await foreach (var app in client.Applications.ListAllAsync())
 - **Destination signing secrets.** `Destination.HasSigningSecret`; `CreateAsync` returns
   `SigningSecret` once for an HTTP destination; `RevealSecretAsync` and
   `RotateSecretAsync(id, gracePeriodSeconds)` return a `DestinationSecret`.
+- **Secrets stay out of `ToString()`.** `Destination`, `DestinationSecret`, `Endpoint`,
+  `EndpointWithSecret`, `RotateSecretResult`, `Source` and `SourceWithSecret` print a set secret
+  (and a source's verify token) as `[redacted]`; read the property itself to get it.
 - **Holds while a circuit is open.** Deliveries and outbound messages can wait as `held`, spending
   no attempts, until their target recovers. `DeliveryStatus` gains `AwaitingRetry` and `Held`, and
   `MessageStatus` lists all ten outbound statuses (`MessageStatus.AwaitingRetry.ToWireName()` is
   `awaiting_retry`, for the string `status` filters on messages). `Delivery` and `OutboundMessage`
   read `HoldExpiresAt`; send results read `MessagesHeld` and the stats summary `Held`. Routes and
   endpoints read `HoldOnCircuitOpen` (on by default) and, from `GetAsync`, `HeldCount` and
-  `HeldCountCapped`; set `HoldOnCircuitOpen` on their create and update requests to opt out.
+  `HeldCountCapped`. Set `HoldOnCircuitOpen = false` on their create and update requests to opt
+  out: a delivery or message that meets an open circuit is then dead-lettered at once, not retried.
   `EventDebugInfo.GetDeliveries()` reads the debugger's deliveries as typed records.
 - **Replay with edits.** `Deliveries.ReplayAsync(id, ReplayDeliveryRequest)` replaces or
   merge-patches the payload, overrides the destination, transform or headers, and returns the new

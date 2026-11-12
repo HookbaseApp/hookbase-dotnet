@@ -171,8 +171,9 @@ public class DestinationsResource : BaseResource
     /// type from <paramref name="payload"/> (a JSON object) and counts the endpoints subscribed to
     /// it (<see cref="TestDestinationResult.DryRun"/>, <see cref="TestDestinationResult.EventType"/>,
     /// <see cref="TestDestinationResult.MatchingEndpoints"/>). Nothing is published or charged.
-    /// Other destination types ignore it and send their usual test request. A null payload sends no
-    /// body, the same as <see cref="TestAsync(string, CancellationToken)"/>.
+    /// Other destination types ignore it and send their usual test request. A null payload, a JSON
+    /// <c>null</c> or a default <see cref="JsonElement"/> sends no body, the same as
+    /// <see cref="TestAsync(string, CancellationToken)"/>.
     /// </remarks>
     public async Task<TestDestinationResult> TestAsync(
         string id,
@@ -182,7 +183,9 @@ public class DestinationsResource : BaseResource
         return await ApiClient.RequestAsync<TestDestinationResult>(
             HttpMethod.Post,
             $"/api/destinations/{Uri.EscapeDataString(id)}/test",
-            body: payload is { } sample ? new Dictionary<string, object> { ["payload"] = sample } : null,
+            body: payload is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) } sample
+                ? new Dictionary<string, object> { ["payload"] = sample }
+                : null,
             cancellationToken: cancellationToken
         );
     }
@@ -192,7 +195,10 @@ public class DestinationsResource : BaseResource
     /// </summary>
     /// <remarks>
     /// Needs a member role or higher and, for an API key, the <c>write</c> scope; the API audit-logs
-    /// each reveal. A destination that does not sign (queue, storage, bridge) is a 400.
+    /// each reveal. A destination that does not sign (queue, storage, bridge) is a 400
+    /// (<see cref="Exceptions.ValidationException"/>). An HTTP destination with no secret yet is a 404
+    /// (<see cref="Exceptions.NotFoundException"/>), the same as a missing destination; issue one with
+    /// <see cref="RotateSecretAsync"/>.
     /// </remarks>
     public async Task<DestinationSecret> RevealSecretAsync(string id, CancellationToken cancellationToken = default)
     {

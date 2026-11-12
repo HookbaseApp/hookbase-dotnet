@@ -5,7 +5,8 @@ namespace Hookbase.Models.Deliveries;
 /// <summary>
 /// Edits for replaying a delivery (<c>POST /api/deliveries/:id/replay</c>), passed to
 /// <c>DeliveriesResource.ReplayAsync(id, request)</c>. Every member is optional and a null one is
-/// not sent; with none set the replay re-sends the stored payload as it was.
+/// not sent (for the two payload members, a JSON <c>null</c> or a default <see cref="JsonElement"/>
+/// counts as null too); with none set the replay re-sends the stored payload as it was.
 /// </summary>
 /// <remarks>
 /// Set at most one of <see cref="ModifiedPayload"/> and <see cref="PayloadPatch"/>; the SDK throws
@@ -14,7 +15,10 @@ namespace Hookbase.Models.Deliveries;
 /// </remarks>
 public record ReplayDeliveryRequest
 {
-    /// <summary>Replace the payload with this JSON.</summary>
+    /// <summary>
+    /// Replace the payload with this JSON. A JSON <c>null</c> is not sent, since the API would
+    /// replay a literal <c>null</c>.
+    /// </summary>
     public JsonElement? ModifiedPayload { get; init; }
 
     /// <summary>

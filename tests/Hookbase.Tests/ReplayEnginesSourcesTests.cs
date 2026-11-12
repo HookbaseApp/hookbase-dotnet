@@ -99,6 +99,30 @@ public class ReplayEnginesSourcesTests
     }
 
     [Fact]
+    public async Task A_JSON_null_payload_edit_counts_as_unset()
+    {
+        // The API takes any value it is given as an edit, so a JSON null would replay a literal null.
+        var (client, t) = TestTransport.Create();
+        t.Respond(ReplayResult).Respond(ReplayResult);
+        var jsonNull = JsonSerializer.SerializeToElement<object?>(null);
+
+        await client.Deliveries.ReplayAsync("dlv_1", new ReplayDeliveryRequest
+        {
+            ModifiedPayload = jsonNull,
+            PayloadPatch = JsonSerializer.SerializeToElement(new { a = 1 })
+        });
+        Assert.Equal("""{"payloadPatch":{"a":1}}""", t.Last.Body);
+
+        // A null patch is not "not a JSON object": it is not sent.
+        await client.Deliveries.ReplayAsync("dlv_1", new ReplayDeliveryRequest
+        {
+            PayloadPatch = jsonNull,
+            DestinationOverride = "dst_2"
+        });
+        Assert.Equal("""{"destinationOverride":"dst_2"}""", t.Last.Body);
+    }
+
+    [Fact]
     public async Task The_plain_replay_overload_still_binds_and_sends_no_body()
     {
         var (client, t) = TestTransport.Create();

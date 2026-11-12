@@ -1,5 +1,6 @@
 using Hookbase.Exceptions;
 using Hookbase.Json;
+using Hookbase.Models.Common;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -322,6 +323,10 @@ public record Destination
             return null;
         }
     }
+
+    /// <summary>Prints the members as a record does, with <see cref="SigningSecret"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(Destination), false, nameof(SigningSecret));
 }
 
 /// <summary>
@@ -639,7 +644,12 @@ public record TestDestinationResult
 /// current secret (<c>v1,&lt;old&gt; v1,&lt;new&gt;</c>) until this time; null when there is no
 /// previous secret still in use.
 /// </param>
-public record DestinationSecret(string? SigningSecret, string? PreviousSecretExpiresAt);
+public record DestinationSecret(string? SigningSecret, string? PreviousSecretExpiresAt)
+{
+    /// <summary>Prints the members as a record does, with <see cref="SigningSecret"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(DestinationSecret), false, nameof(SigningSecret));
+}
 
 /// <summary>
 /// Export result containing destinations with metadata.

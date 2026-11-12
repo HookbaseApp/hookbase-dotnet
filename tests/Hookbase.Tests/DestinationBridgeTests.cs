@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using Hookbase.Json;
 using Hookbase.Models.Destinations;
@@ -90,8 +89,8 @@ public class DestinationBridgeTests
     [Fact]
     public void BridgeConfig_factories_send_only_the_keys_the_strict_schema_allows()
     {
-        Assert.Equal("""{"eventTypeSource":"fixed","eventType":"order.created","applicationId":"app_1"}""",
-            JsonSerializer.Serialize(BridgeConfig.Fixed("order.created") with { ApplicationId = "app_1" }, HookbaseJson.Options));
+        Assert.Equal("""{"eventTypeSource":"fixed","eventType":"order.created","applicationId":"3f2b8c1e-4d5a-4b6c-9e7f-0a1b2c3d4e5f"}""",
+            JsonSerializer.Serialize(BridgeConfig.Fixed("order.created") with { ApplicationId = "3f2b8c1e-4d5a-4b6c-9e7f-0a1b2c3d4e5f" }, HookbaseJson.Options));
         Assert.Equal("""{"eventTypeSource":"field","eventTypeField":"type","eventTypePrefix":"gh.","allowUnverifiedSources":true}""",
             JsonSerializer.Serialize(BridgeConfig.FromField("type", "gh.") with { AllowUnverifiedSources = true }, HookbaseJson.Options));
 
@@ -132,17 +131,35 @@ public class DestinationBridgeTests
     }
 
     [Fact]
+    public async Task Test_sends_no_body_for_a_JSON_null_or_default_payload()
+    {
+        // The API answers {"payload":null} with a 400 (the payload must be a JSON object), and a
+        // default JsonElement cannot be serialized at all; both mean "no payload".
+        var (client, t) = TestTransport.Create();
+        t.Respond("""{"success":true,"status":200}""")
+         .Respond("""{"success":true,"status":200}""");
+
+        await client.Destinations.TestAsync("dst_b", JsonSerializer.SerializeToElement<object?>(null));
+        Assert.Equal("POST /api/destinations/dst_b/test", $"{t.Last.Method} {t.Last.Path}");
+        Assert.Null(t.Last.Body);
+
+        await client.Destinations.TestAsync("dst_b", default(JsonElement));
+        Assert.Null(t.Last.Body);
+        Assert.Equal(2, t.Requests.Count);
+    }
+
+    [Fact]
     public async Task Create_returns_the_signing_secret_once_and_reads_hasSigningSecret()
     {
         var (client, t) = TestTransport.Create();
         t.Respond("""
             {"destination":{"id":"dst_1","name":"Orders","slug":"orders","url":"https://a.example/hook","method":"POST",
              "type":"http","isActive":true,"hasSigningSecret":true,"signingSecret":"whsec_abc"}}
-            """, HttpStatusCode.Created)
+            """)
          .Respond("""
             {"destination":{"id":"dst_2","name":"Queue","slug":"queue","url":"","type":"sqs",
              "isActive":true,"hasSigningSecret":false,"signingSecret":null}}
-            """, HttpStatusCode.Created)
+            """)
          .Respond("""{"destinations":[{"id":"dst_1","type":"http","hasSigningSecret":true}],"pagination":{"total":1,"page":1,"pageSize":20}}""");
 
         var http = await client.Destinations.CreateAsync(new CreateDestinationRequest { Name = "Orders", Url = "https://a.example/hook" });

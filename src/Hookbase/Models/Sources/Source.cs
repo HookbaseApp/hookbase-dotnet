@@ -1,4 +1,6 @@
 using Hookbase.Json;
+using Hookbase.Models.Common;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Models.Sources;
@@ -93,6 +95,10 @@ public record Source
 
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="SigningSecret"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(Source), false, nameof(SigningSecret));
 }
 
 /// <summary>
@@ -113,6 +119,14 @@ public record SourceWithSecret : Source
     /// later with <c>SourcesResource.GetVerifyTokenAsync</c>.
     /// </summary>
     public string? VerifyToken { get; init; }
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SigningSecret"/> and
+    /// <see cref="VerifyToken"/> redacted.
+    /// </summary>
+    protected override bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(SourceWithSecret), base.PrintMembers(builder),
+            nameof(SigningSecret), nameof(VerifyToken));
 }
 
 /// <summary>
