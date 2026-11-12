@@ -265,6 +265,8 @@ public class InboundShapeFixTests
     [InlineData(DeliveryStatus.FailedOver, "failed_over")]
     [InlineData(DeliveryStatus.SchemaFailed, "schema_failed")]
     [InlineData(DeliveryStatus.Throttled, "throttled")]
+    [InlineData(DeliveryStatus.AwaitingRetry, "awaiting_retry")]
+    [InlineData(DeliveryStatus.Held, "held")]
     public async Task Delivery_status_filters_use_the_API_names(DeliveryStatus status, string wire)
     {
         var (client, t) = TestTransport.Create();

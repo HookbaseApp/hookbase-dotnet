@@ -20,8 +20,10 @@ public record Delivery
     public string? DestinationId { get; init; }
 
     /// <summary>
-    /// e.g. <c>pending</c>, <c>delivered</c>, <c>failed</c>. <c>pending</c> covers both not-yet-sent
-    /// and failed-and-waiting-to-retry (then <see cref="NextRetryAt"/> is set).
+    /// e.g. <c>pending</c>, <c>delivered</c>, <c>failed</c>, <c>awaiting_retry</c>, <c>held</c>.
+    /// <c>pending</c> covers both not-yet-sent and failed-and-waiting-to-retry (then
+    /// <see cref="NextRetryAt"/> is set). <c>held</c> waits while the route's circuit is open
+    /// (<see cref="HoldExpiresAt"/>).
     /// </summary>
     public string? Status { get; init; }
 
@@ -29,7 +31,15 @@ public record Delivery
     public int? AttemptCount { get; init; }
 
     public int? MaxAttempts { get; init; }
+
+    /// <summary>When the next attempt is due; null while the delivery is <c>held</c>.</summary>
     public string? NextRetryAt { get; init; }
+
+    /// <summary>
+    /// For a <c>held</c> delivery, when the plan's retry window ends: a delivery still held then is
+    /// dead-lettered. Null for any other status.
+    /// </summary>
+    public string? HoldExpiresAt { get; init; }
 
     /// <summary>The destination's HTTP status, or null when no response came back.</summary>
     public int? ResponseStatus { get; init; }

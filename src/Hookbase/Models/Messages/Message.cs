@@ -39,10 +39,17 @@ public record OutboundMessage
     public string? EndpointUrl { get; init; }
 
     /// <summary>
-    /// pending, processing, success, failed, awaiting_retry, exhausted or dlq. Kept as a string so a
+    /// pending, processing, success, failed, awaiting_retry, awaiting_pull, fifo_waiting, held,
+    /// exhausted or dlq (<see cref="Hookbase.Models.Common.MessageStatus"/>). Kept as a string so a
     /// status added later does not fail deserialization.
     /// </summary>
     public string? Status { get; init; }
+
+    /// <summary>
+    /// For a <c>held</c> message, when the retry window ends: a message still held then is
+    /// dead-lettered. Null for any other status.
+    /// </summary>
+    public string? HoldExpiresAt { get; init; }
 
     public int Attempts { get; init; }
     public int MaxAttempts { get; init; }
@@ -204,6 +211,12 @@ public record SendMessageResponse
     /// <summary>The event-type version the event was published in; null when unversioned.</summary>
     public string? EventVersion { get; init; }
 
+    /// <summary>
+    /// Of <see cref="MessagesQueued"/>, how many wait as <c>held</c> because their endpoint's
+    /// circuit breaker is open. 0 when none are, and on an idempotent repeat.
+    /// </summary>
+    public int MessagesHeld { get; init; }
+
     /// <summary>Same as <see cref="EventId"/>.</summary>
     [JsonIgnore]
     [Obsolete("The API has no messageId field; this returns EventId. Use EventId.")]
@@ -240,6 +253,10 @@ public record MessageStatsSummary
     public int Success { get; init; }
     public int Failed { get; init; }
     public int AwaitingRetry { get; init; }
+
+    /// <summary>Waiting while their endpoint's circuit breaker is open.</summary>
+    public int Held { get; init; }
+
     public int Exhausted { get; init; }
     public int Dlq { get; init; }
     public int Total { get; init; }

@@ -43,6 +43,23 @@ public record Endpoint
     public int? CircuitFailureThreshold { get; init; }
     public int? CircuitSuccessThreshold { get; init; }
     public int? CircuitCooldownSeconds { get; init; }
+
+    /// <summary>
+    /// While the circuit is open, hold this endpoint's messages (status <c>held</c>, spending no
+    /// attempts) and release them once it recovers, instead of failing them. On by default.
+    /// </summary>
+    [JsonConverter(typeof(BooleanConverter))]
+    public bool HoldOnCircuitOpen { get; init; } = true;
+
+    /// <summary>
+    /// Messages currently held for this endpoint, counted up to 10,000 (see
+    /// <see cref="HeldCountCapped"/>). Set by <c>GetAsync</c> only; null on list.
+    /// </summary>
+    public int? HeldCount { get; init; }
+
+    /// <summary>True when <see cref="HeldCount"/> stopped at its cap and there are more. Get only.</summary>
+    public bool? HeldCountCapped { get; init; }
+
     [Obsolete("The API does not return filterTypes; it is always null.")]
     public List<string>? FilterTypes { get; init; }
 
@@ -175,6 +192,12 @@ public record CreateEndpointRequest
     /// <summary>Seconds the circuit stays open before a probe delivery (10-3600).</summary>
     public int? CircuitCooldownSeconds { get; init; }
 
+    /// <summary>
+    /// Hold messages while the circuit is open instead of failing them (see
+    /// <see cref="Endpoint.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// </summary>
+    public bool? HoldOnCircuitOpen { get; init; }
+
     [Obsolete("filterTypes is not accepted by the Hookbase API and is never sent. " +
               "Use subscriptions (client.Subscriptions) to control which event types reach an endpoint.")]
     [JsonIgnore]
@@ -259,6 +282,12 @@ public record UpdateEndpointRequest
 
     /// <summary>Seconds the circuit stays open before a probe delivery (10-3600).</summary>
     public int? CircuitCooldownSeconds { get; init; }
+
+    /// <summary>
+    /// Hold messages while the circuit is open instead of failing them (see
+    /// <see cref="Endpoint.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// </summary>
+    public bool? HoldOnCircuitOpen { get; init; }
 
     /// <summary>
     /// Settings to reset to their platform defaults.

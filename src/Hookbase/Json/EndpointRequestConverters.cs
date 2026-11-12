@@ -74,6 +74,10 @@ internal sealed class EndpointRequestPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? CircuitCooldownSeconds { get; set; }
 
+    [JsonPropertyName("holdOnCircuitOpen")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HoldOnCircuitOpen { get; set; }
+
     [JsonPropertyName("signatureScheme")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SignatureScheme { get; set; }
@@ -105,6 +109,7 @@ internal sealed class EndpointRequestPayload
         CircuitFailureThreshold = request.CircuitFailureThreshold,
         CircuitSuccessThreshold = request.CircuitSuccessThreshold,
         CircuitCooldownSeconds = request.CircuitCooldownSeconds,
+        HoldOnCircuitOpen = request.HoldOnCircuitOpen,
         SignatureScheme = request.SignatureScheme
     };
 
@@ -123,6 +128,7 @@ internal sealed class EndpointRequestPayload
         CircuitFailureThreshold = request.CircuitFailureThreshold,
         CircuitSuccessThreshold = request.CircuitSuccessThreshold,
         CircuitCooldownSeconds = request.CircuitCooldownSeconds,
+        HoldOnCircuitOpen = request.HoldOnCircuitOpen,
         SignatureScheme = request.SignatureScheme,
         IsDisabled = request.IsDisabled,
         DisabledReason = request.DisabledReason
@@ -145,6 +151,7 @@ internal sealed class EndpointRequestPayload
         CircuitFailureThreshold = CircuitFailureThreshold,
         CircuitSuccessThreshold = CircuitSuccessThreshold,
         CircuitCooldownSeconds = CircuitCooldownSeconds,
+        HoldOnCircuitOpen = HoldOnCircuitOpen,
         SignatureScheme = SignatureScheme
     };
 
@@ -163,6 +170,7 @@ internal sealed class EndpointRequestPayload
         CircuitFailureThreshold = CircuitFailureThreshold,
         CircuitSuccessThreshold = CircuitSuccessThreshold,
         CircuitCooldownSeconds = CircuitCooldownSeconds,
+        HoldOnCircuitOpen = HoldOnCircuitOpen,
         SignatureScheme = SignatureScheme,
         IsDisabled = IsDisabled,
         DisabledReason = DisabledReason
