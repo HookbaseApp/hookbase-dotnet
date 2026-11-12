@@ -1,5 +1,7 @@
+using System.Text;
 using System.Text.Json.Serialization;
 using Hookbase.Json;
+using Hookbase.Models.Common;
 
 namespace Hookbase.Models.Tunnels;
 
@@ -45,6 +47,13 @@ public record Tunnel
 
     [Obsolete("The API does not return updatedAt for tunnels; it is always null.")]
     public string? UpdatedAt { get; init; }
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="AuthToken"/> and <see cref="WsUrl"/>
+    /// (which carries the token) redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(Tunnel), false, nameof(AuthToken), nameof(WsUrl));
 }
 
 /// <summary>

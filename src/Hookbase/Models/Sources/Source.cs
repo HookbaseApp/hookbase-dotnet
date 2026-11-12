@@ -198,6 +198,14 @@ public record CreateSourceRequest
     /// the catalog does not have is a 400. It cannot be changed after the source is created.
     /// </summary>
     public string? CatalogProvider { get; init; }
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SigningSecret"/> and
+    /// <see cref="VerifyToken"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(CreateSourceRequest), false,
+            nameof(SigningSecret), nameof(VerifyToken));
 }
 
 /// <summary>
@@ -276,6 +284,14 @@ public record UpdateSourceRequest
     /// </remarks>
     [JsonIgnore]
     public List<SourceField> Clear { get; init; } = new();
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SigningSecret"/> and
+    /// <see cref="VerifyToken"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(UpdateSourceRequest), false,
+            nameof(SigningSecret), nameof(VerifyToken));
 }
 
 /// <summary>
@@ -344,6 +360,10 @@ public record PendingVerification
     public string? Token { get; init; }
     public string? ReceivedAt { get; init; }
     public string? ClientIp { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="Token"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(PendingVerification), false, nameof(Token));
 }
 
 /// <summary>

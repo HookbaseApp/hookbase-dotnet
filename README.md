@@ -66,8 +66,10 @@ var newSource = await client.Sources.CreateAsync(new CreateSourceRequest
 });
 
 Console.WriteLine($"Created source: {newSource.Id}");
-// Null for providers with no secret to return (wise, asana, notion); see below.
-Console.WriteLine($"Signing secret: {newSource.SigningSecret}");
+// Keep the signing secret in a secret store, not a log. It is null for providers with no secret
+// to return (wise, asana, notion); see below.
+if (newSource.SigningSecret is { } signingSecret)
+    await secretStore.SaveAsync("github-prod/hookbase-signing-secret", signingSecret);
 
 // Get a source
 var source = await client.Sources.GetAsync("source_123");
@@ -79,9 +81,9 @@ await client.Sources.UpdateAsync("source_123", new UpdateSourceRequest
     IsActive = true
 });
 
-// Rotate signing secret
+// Rotate signing secret, and store the new one the same way
 var rotatedSecret = await client.Sources.RotateSecretAsync("source_123");
-Console.WriteLine($"New secret: {rotatedSecret}");
+await secretStore.SaveAsync("github-prod/hookbase-signing-secret", rotatedSecret);
 
 // Clear a field: null members are omitted, so name it in Clear to send an explicit null
 await client.Sources.UpdateAsync("source_123", new UpdateSourceRequest
@@ -534,9 +536,12 @@ await foreach (var app in client.Applications.ListAllAsync())
 - **Destination signing secrets.** `Destination.HasSigningSecret`; `CreateAsync` returns
   `SigningSecret` once for an HTTP destination; `RevealSecretAsync` and
   `RotateSecretAsync(id, gracePeriodSeconds)` return a `DestinationSecret`.
-- **Secrets stay out of `ToString()`.** `Destination`, `DestinationSecret`, `Endpoint`,
-  `EndpointWithSecret`, `RotateSecretResult`, `Source` and `SourceWithSecret` print a set secret
-  (and a source's verify token) as `[redacted]`; read the property itself to get it.
+- **Secrets stay out of `ToString()`.** Every model that carries a secret now prints a set one as
+  `[redacted]`, so a logged record no longer leaks it: signing secrets and verify tokens
+  (`Destination`, `DestinationSecret`, `Endpoint`, `EndpointWithSecret`, `RotateSecretResult`,
+  `Source`, `SourceWithSecret`, `CreateSourceRequest`, `UpdateSourceRequest`), tokens
+  (`Tunnel.AuthToken` and `WsUrl`, `PortalToken.Token`, `PendingVerification.Token`) and storage
+  keys (`S3Config`, `GCSConfig`, `AzureBlobConfig`). Read the property itself to get the value.
 - **Holds while a circuit is open.** Deliveries and outbound messages can wait as `held`, spending
   no attempts, until their target recovers. `DeliveryStatus` gains `AwaitingRetry` and `Held`, and
   `MessageStatus` lists all ten outbound statuses (`MessageStatus.AwaitingRetry.ToWireName()` is

@@ -99,7 +99,14 @@ public record S3Config(
     string? Prefix = null,
     string? FileFormat = null,
     string? PartitionBy = null
-);
+)
+{
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SecretAccessKey"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(S3Config), false, nameof(SecretAccessKey));
+}
 
 /// <summary>
 /// Cloudflare R2 warehouse destination configuration.
@@ -121,7 +128,14 @@ public record GCSConfig(
     string? Prefix = null,
     string? FileFormat = null,
     string? PartitionBy = null
-);
+)
+{
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="ServiceAccountKey"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(GCSConfig), false, nameof(ServiceAccountKey));
+}
 
 /// <summary>
 /// Azure Blob Storage warehouse destination configuration.
@@ -133,7 +147,14 @@ public record AzureBlobConfig(
     string? Prefix = null,
     string? FileFormat = null,
     string? PartitionBy = null
-);
+)
+{
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="AccountKey"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(AzureBlobConfig), false, nameof(AccountKey));
+}
 
 /// <summary>
 /// Where a bridge destination takes the event type it publishes from: <see cref="Fixed"/> (always
