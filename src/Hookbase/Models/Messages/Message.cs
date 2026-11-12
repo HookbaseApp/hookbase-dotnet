@@ -76,6 +76,12 @@ public record OutboundMessage
     /// <summary>The version the latest attempt delivered, after conversion to the subscription's pin.</summary>
     public string? DeliveredEventVersion { get; init; }
 
+    /// <summary>
+    /// The inbound event and delivery a bridge destination published this message's event from;
+    /// null when the event was sent directly. Detail only.
+    /// </summary>
+    public OutboundMessageBridge? Bridge { get; init; }
+
     // DLQ-only (GET /outbound-messages/dlq/messages)
     public string? DlqReason { get; init; }
     public string? DlqMovedAt { get; init; }
@@ -112,6 +118,24 @@ public record OutboundMessage
     [JsonIgnore]
     [Obsolete("The API does not return this field; it is always null.")]
     public string? UpdatedAt { get; init; }
+}
+
+/// <summary>
+/// Where a bridged outbound event came from (<see cref="OutboundMessage.Bridge"/>).
+/// </summary>
+public record OutboundMessageBridge
+{
+    /// <summary>The inbound event the bridge destination received.</summary>
+    public string? InboundEventId { get; init; }
+
+    /// <summary>The inbound delivery to the bridge destination that published the event.</summary>
+    public string? DeliveryId { get; init; }
+
+    /// <summary>
+    /// How many bridges the event has passed through (1 for an event published straight from an
+    /// inbound webhook). A bridge refuses an event that has already crossed three.
+    /// </summary>
+    public int? Hop { get; init; }
 }
 
 /// <summary>

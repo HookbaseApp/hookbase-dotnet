@@ -8,9 +8,10 @@ using System.Text.Json.Serialization;
 namespace Hookbase.Models.Destinations;
 
 /// <summary>
-/// Type of destination: an HTTP endpoint, a message queue, or warehouse storage. On the wire these
-/// are the API's names (<c>http</c>, <c>sqs</c>, <c>eventbridge</c>, <c>servicebus</c>,
-/// <c>pubsub</c>, <c>oci_queue</c>, <c>s3</c>, <c>r2</c>, <c>gcs</c>, <c>azure_blob</c>).
+/// Type of destination: an HTTP endpoint, a message queue, warehouse storage, or a bridge that
+/// publishes deliveries as outbound events. On the wire these are the API's names (<c>http</c>,
+/// <c>sqs</c>, <c>eventbridge</c>, <c>servicebus</c>, <c>pubsub</c>, <c>oci_queue</c>, <c>s3</c>,
+/// <c>r2</c>, <c>gcs</c>, <c>azure_blob</c>, <c>bridge</c>).
 /// </summary>
 /// <remarks>
 /// A type the SDK does not know yet reads as null rather than failing the whole response.
@@ -26,7 +27,15 @@ public enum DestinationType
     EventBridge,
     ServiceBus,
     PubSub,
-    OciQueue
+    OciQueue,
+
+    /// <summary>
+    /// Publishes each delivery as an outbound event (<c>bridge</c>), to the endpoints subscribed to
+    /// its event type. Takes a <see cref="BridgeConfig"/> as <c>Config</c> and no URL, headers, auth
+    /// or static IP; its <c>Url</c> reads as an empty string. Creating one also takes the
+    /// <c>events:send</c> permission.
+    /// </summary>
+    Bridge
 }
 
 /// <summary>
@@ -48,6 +57,7 @@ public sealed class DestinationTypeJsonConverter : JsonConverter<DestinationType
         [DestinationType.ServiceBus] = "servicebus",
         [DestinationType.PubSub] = "pubsub",
         [DestinationType.OciQueue] = "oci_queue",
+        [DestinationType.Bridge] = "bridge",
     };
 
     private static readonly Dictionary<string, DestinationType> FromWire =
@@ -125,6 +135,81 @@ public record AzureBlobConfig(
 );
 
 /// <summary>
+/// Where a bridge destination takes the event type it publishes from: <see cref="Fixed"/> (always
+/// <see cref="BridgeConfig.EventType"/>) or <see cref="Field"/> (read from the payload at
+/// <see cref="BridgeConfig.EventTypeField"/>).
+/// </summary>
+public static class BridgeEventTypeSource
+{
+    public const string Fixed = "fixed";
+    public const string Field = "field";
+}
+
+/// <summary>
+/// A bridge destination's config (<see cref="DestinationType.Bridge"/>). Pass it as
+/// <c>CreateDestinationRequest.Config</c> or <c>UpdateDestinationRequest.Config</c>; read it back
+/// with <see cref="Destination.GetBridgeConfig"/>.
+/// </summary>
+/// <remarks>
+/// The API's schema is strict and checks the combination: <see cref="EventType"/> only with
+/// <see cref="BridgeEventTypeSource.Fixed"/> (and then required), <see cref="EventTypeField"/> and
+/// <see cref="EventTypePrefix"/> only with <see cref="BridgeEventTypeSource.Field"/>
+/// (<see cref="EventTypeField"/> required). <see cref="Fixed"/> and <see cref="FromField"/> build
+/// the two valid shapes. A fixed event type must exist and be enabled in the organization. Null
+/// members are not sent.
+/// </remarks>
+public record BridgeConfig
+{
+    /// <summary><see cref="BridgeEventTypeSource.Fixed"/> or <see cref="BridgeEventTypeSource.Field"/>.</summary>
+    public required string EventTypeSource { get; init; }
+
+    /// <summary>The event type to publish, for <see cref="BridgeEventTypeSource.Fixed"/>.</summary>
+    public string? EventType { get; init; }
+
+    /// <summary>
+    /// Dot path of the payload field holding the event type (e.g. <c>data.type</c>, at most 5
+    /// segments), for <see cref="BridgeEventTypeSource.Field"/>.
+    /// </summary>
+    public string? EventTypeField { get; init; }
+
+    /// <summary>
+    /// Prepended to the field's value (e.g. <c>stripe.</c>), for <see cref="BridgeEventTypeSource.Field"/>.
+    /// Lowercase letters, digits and dots, starting with a letter; at most 50 characters.
+    /// </summary>
+    public string? EventTypePrefix { get; init; }
+
+    /// <summary>Publish only to this application's endpoints. Null publishes to every subscribed endpoint.</summary>
+    public string? ApplicationId { get; init; }
+
+    /// <summary>
+    /// By default a bridge publishes only events whose sender the source verified (a valid
+    /// signature with the source's own secret, or an IP allowlist). True publishes the rest too.
+    /// </summary>
+    public bool? AllowUnverifiedSources { get; init; }
+
+    /// <summary>A config that always publishes <paramref name="eventType"/>.</summary>
+    public static BridgeConfig Fixed(string eventType) => new()
+    {
+        EventTypeSource = BridgeEventTypeSource.Fixed,
+        EventType = eventType
+    };
+
+    /// <summary>
+    /// A config that reads the event type from the payload at <paramref name="eventTypeField"/>,
+    /// optionally prefixed with <paramref name="eventTypePrefix"/>.
+    /// </summary>
+    public static BridgeConfig FromField(string eventTypeField, string? eventTypePrefix = null) => new()
+    {
+        EventTypeSource = BridgeEventTypeSource.Field,
+        EventTypeField = eventTypeField,
+        EventTypePrefix = eventTypePrefix
+    };
+
+    /// <summary>This config as the JSON the API stores, e.g. to compare with <see cref="Destination.Config"/>.</summary>
+    public JsonElement ToJsonElement() => JsonSerializer.SerializeToElement(this, HookbaseJson.Options);
+}
+
+/// <summary>
 /// Field mapping for warehouse destinations.
 /// </summary>
 public record FieldMapping(
@@ -197,6 +282,46 @@ public record Destination
     public int? RouteCount { get; init; }
     public int? SuccessCount { get; init; }
     public int? FailureCount { get; init; }
+
+    /// <summary>
+    /// Whether the destination signs its deliveries (HTTP destinations do; queue, storage and
+    /// bridge destinations do not). Verify them with <c>WebhookVerifier</c>; read the secret with
+    /// <c>DestinationsResource.RevealSecretAsync</c>.
+    /// </summary>
+    [JsonConverter(typeof(BooleanConverter))]
+    public bool HasSigningSecret { get; init; }
+
+    /// <summary>
+    /// The <c>whsec_</c> signing secret, on the result of <c>CreateAsync</c> only: the API shows it
+    /// once. Null for a destination that does not sign, and on every other read; use
+    /// <c>DestinationsResource.RevealSecretAsync</c> or <c>RotateSecretAsync</c> later.
+    /// </summary>
+    public string? SigningSecret { get; init; }
+
+    /// <summary>
+    /// <see cref="Config"/> as a <see cref="BridgeConfig"/> when this is a bridge destination;
+    /// null for any other type or when there is no config. Parsed on each call.
+    /// </summary>
+    public BridgeConfig? GetBridgeConfig()
+    {
+        if (Type != DestinationType.Bridge || Config is not { } config) return null;
+
+        try
+        {
+            return config.ValueKind switch
+            {
+                JsonValueKind.Object => config.Deserialize<BridgeConfig>(HookbaseJson.Options),
+                // Some list responses carry the stored config as JSON text.
+                JsonValueKind.String when !string.IsNullOrWhiteSpace(config.GetString())
+                    => JsonSerializer.Deserialize<BridgeConfig>(config.GetString()!, HookbaseJson.Options),
+                _ => null
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }
 
 /// <summary>
@@ -475,6 +600,12 @@ public record UpdateDestinationRequest
 /// <summary>
 /// Result of testing a destination connection.
 /// </summary>
+/// <remarks>
+/// An HTTP or storage test sets <see cref="Status"/>, <see cref="LatencyMs"/> and
+/// <see cref="ResponseBody"/>. A bridge test is a dry run (<see cref="DryRun"/> true): it resolves
+/// the event type from the sample payload and counts the subscribed endpoints, publishing nothing.
+/// <see cref="Success"/> is then whether the event type exists.
+/// </remarks>
 public record TestDestinationResult
 {
     public bool Success { get; init; }
@@ -482,7 +613,33 @@ public record TestDestinationResult
     public int? LatencyMs { get; init; }
     public string? ResponseBody { get; init; }
     public string? Error { get; init; }
+
+    /// <summary>True for a bridge destination's test, which publishes nothing; null otherwise.</summary>
+    public bool? DryRun { get; init; }
+
+    /// <summary>Bridge: the event type the sample payload resolves to; null when none could be resolved (see <see cref="Error"/>).</summary>
+    public string? EventType { get; init; }
+
+    /// <summary>Bridge: whether <see cref="EventType"/> exists and is enabled in the organization.</summary>
+    public bool? EventTypeExists { get; init; }
+
+    /// <summary>
+    /// Bridge: endpoints subscribed to <see cref="EventType"/>, before label filters, filter
+    /// expressions and circuit state are applied.
+    /// </summary>
+    public int? MatchingEndpoints { get; init; }
 }
+
+/// <summary>
+/// A destination's signing secret, from <c>RevealSecretAsync</c> or <c>RotateSecretAsync</c>.
+/// </summary>
+/// <param name="SigningSecret">The current <c>whsec_</c> secret.</param>
+/// <param name="PreviousSecretExpiresAt">
+/// While a rotation's grace period runs, deliveries are signed with both the previous and the
+/// current secret (<c>v1,&lt;old&gt; v1,&lt;new&gt;</c>) until this time; null when there is no
+/// previous secret still in use.
+/// </param>
+public record DestinationSecret(string? SigningSecret, string? PreviousSecretExpiresAt);
 
 /// <summary>
 /// Export result containing destinations with metadata.
