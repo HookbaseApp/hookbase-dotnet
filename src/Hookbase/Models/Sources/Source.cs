@@ -1,4 +1,6 @@
 using Hookbase.Json;
+using Hookbase.Models.Common;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Models.Sources;
@@ -14,6 +16,12 @@ public record Source
     public string? Slug { get; init; }
     public string? Description { get; init; }
     public string? Provider { get; init; }
+
+    /// <summary>
+    /// The provider-catalog entry the source was made from (the <c>id</c> of
+    /// <c>GET /api/catalog/providers</c>), or null. Set on create only.
+    /// </summary>
+    public string? CatalogProvider { get; init; }
 
     [JsonConverter(typeof(BooleanConverter))]
     public bool IsActive { get; init; } = true;
@@ -87,6 +95,10 @@ public record Source
 
     public string? CreatedAt { get; init; }
     public string? UpdatedAt { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="SigningSecret"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(Source), false, nameof(SigningSecret));
 }
 
 /// <summary>
@@ -107,6 +119,14 @@ public record SourceWithSecret : Source
     /// later with <c>SourcesResource.GetVerifyTokenAsync</c>.
     /// </summary>
     public string? VerifyToken { get; init; }
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SigningSecret"/> and
+    /// <see cref="VerifyToken"/> redacted.
+    /// </summary>
+    protected override bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(SourceWithSecret), base.PrintMembers(builder),
+            nameof(SigningSecret), nameof(VerifyToken));
 }
 
 /// <summary>
@@ -169,6 +189,23 @@ public record CreateSourceRequest
     /// Restrict the ingest endpoint to these HTTP verbs. Null or empty accepts any method.
     /// </summary>
     public List<string>? AllowedMethods { get; init; }
+
+    /// <summary>
+    /// The provider-catalog entry (an <c>id</c> from <c>GET /api/catalog/providers</c>) the source
+    /// is made from, recorded on the source. Several catalog entries have no verifier of their own
+    /// and are created as a custom HMAC source; this records whose sender it is, so a bridge
+    /// destination does not treat the vendor's shared IP addresses as verifying the sender. An id
+    /// the catalog does not have is a 400. It cannot be changed after the source is created.
+    /// </summary>
+    public string? CatalogProvider { get; init; }
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SigningSecret"/> and
+    /// <see cref="VerifyToken"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(CreateSourceRequest), false,
+            nameof(SigningSecret), nameof(VerifyToken));
 }
 
 /// <summary>
@@ -247,6 +284,14 @@ public record UpdateSourceRequest
     /// </remarks>
     [JsonIgnore]
     public List<SourceField> Clear { get; init; } = new();
+
+    /// <summary>
+    /// Prints the members as a record does, with <see cref="SigningSecret"/> and
+    /// <see cref="VerifyToken"/> redacted.
+    /// </summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(UpdateSourceRequest), false,
+            nameof(SigningSecret), nameof(VerifyToken));
 }
 
 /// <summary>
@@ -315,6 +360,10 @@ public record PendingVerification
     public string? Token { get; init; }
     public string? ReceivedAt { get; init; }
     public string? ClientIp { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="Token"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(PendingVerification), false, nameof(Token));
 }
 
 /// <summary>

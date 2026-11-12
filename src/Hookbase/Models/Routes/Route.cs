@@ -40,6 +40,24 @@ public record Route
     public int? CircuitProbeSuccessThreshold { get; init; }
     public int? CircuitProbeAttempts { get; init; }
 
+    /// <summary>
+    /// While the circuit is open, hold this route's deliveries (status <c>held</c>, spending no
+    /// attempts) and release them once the destination recovers. On by default. Holds need a plan
+    /// with the circuit breaker. When false, a delivery that comes up while the circuit is open is
+    /// dead-lettered at once (reason <c>circuit_breaker_open</c>); it is not retried.
+    /// </summary>
+    [JsonConverter(typeof(BooleanConverter))]
+    public bool HoldOnCircuitOpen { get; init; } = true;
+
+    /// <summary>
+    /// Deliveries currently held on this route, counted up to 10,000 (see
+    /// <see cref="HeldCountCapped"/>). Set by <c>GetAsync</c> only; null on list.
+    /// </summary>
+    public int? HeldCount { get; init; }
+
+    /// <summary>True when <see cref="HeldCount"/> stopped at its cap and there are more. Get only.</summary>
+    public bool? HeldCountCapped { get; init; }
+
     [JsonConverter(typeof(BooleanConverter))]
     public bool NotifyOnFailure { get; init; }
 
@@ -94,6 +112,11 @@ public record CreateRouteRequest
     public bool? NotifyOnFailure { get; init; }
     public bool? NotifyOnSuccess { get; init; }
     public bool? NotifyOnRecovery { get; init; }
+    /// <summary>
+    /// Hold deliveries while the circuit is open; false dead-letters them at once, without retries
+    /// (see <see cref="Route.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// </summary>
+    public bool? HoldOnCircuitOpen { get; init; }
 }
 
 /// <summary>
@@ -116,6 +139,11 @@ public record UpdateRouteRequest
     public bool? NotifyOnFailure { get; init; }
     public bool? NotifyOnSuccess { get; init; }
     public bool? NotifyOnRecovery { get; init; }
+    /// <summary>
+    /// Hold deliveries while the circuit is open; false dead-letters them at once, without retries
+    /// (see <see cref="Route.HoldOnCircuitOpen"/>). Null leaves it as is (true on create).
+    /// </summary>
+    public bool? HoldOnCircuitOpen { get; init; }
 }
 
 /// <summary>
@@ -204,6 +232,12 @@ public record ExportedRoute
     public int CircuitCooldownSeconds { get; init; }
     public int CircuitFailureThreshold { get; init; }
     public int CircuitProbeSuccessThreshold { get; init; }
+
+    /// <summary>
+    /// <see cref="Route.HoldOnCircuitOpen"/>. Null in an export made before holds existed; importing
+    /// such a route leaves the setting alone (true for a new route).
+    /// </summary>
+    public bool? HoldOnCircuitOpen { get; init; }
 
     /// <summary>Same as <see cref="FilterSlug"/>; a value set here is sent as <c>filterSlug</c>.</summary>
     [JsonIgnore]

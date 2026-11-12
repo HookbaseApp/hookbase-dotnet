@@ -1,3 +1,4 @@
+using Hookbase.Json;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Models.Common;
@@ -247,8 +248,13 @@ public enum InboundEventStatus
 /// <summary>
 /// Inbound delivery status, used as the <c>status</c> filter on delivery lists. Sent as the API's
 /// snake_case names: <c>pending</c>, <c>delivered</c>, <c>failed</c>, <c>failed_over</c>,
-/// <c>schema_failed</c>, <c>throttled</c>.
+/// <c>schema_failed</c>, <c>throttled</c>, <c>awaiting_retry</c>, <c>held</c>
+/// (<see cref="StatusWireNames.ToWireName(DeliveryStatus)"/>).
 /// </summary>
+/// <remarks>
+/// Filtering by <see cref="Pending"/> also matches <see cref="AwaitingRetry"/> and
+/// <see cref="Held"/>; filter by those to see only them.
+/// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DeliveryStatus
 {
@@ -263,16 +269,66 @@ public enum DeliveryStatus
     Exhausted,
     FailedOver,
     SchemaFailed,
-    Throttled
+    Throttled,
+
+    /// <summary>Failed an attempt and waits for its next one (<c>awaiting_retry</c>).</summary>
+    AwaitingRetry,
+
+    /// <summary>
+    /// Waits, spending no attempts, while its route's circuit breaker is open (<c>held</c>). Released
+    /// into <see cref="AwaitingRetry"/> once the destination recovers; see <c>Delivery.HoldExpiresAt</c>.
+    /// </summary>
+    Held
 }
 
+/// <summary>
+/// Outbound message status. <c>OutboundMessage.Status</c> is the API's string; pass
+/// <see cref="StatusWireNames.ToWireName(MessageStatus)"/> as the <c>status</c> filter of
+/// <c>MessagesResource.ListAsync</c> and <c>ExportAsync</c>.
+/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MessageStatus
 {
     Pending,
     Success,
     Failed,
-    Exhausted
+
+    /// <summary>Used every attempt without delivering (<c>exhausted</c>).</summary>
+    Exhausted,
+
+    /// <summary>Being sent (<c>processing</c>).</summary>
+    Processing,
+
+    /// <summary>Failed an attempt and waits for its next one (<c>awaiting_retry</c>).</summary>
+    AwaitingRetry,
+
+    /// <summary>Waits for a polling endpoint to fetch it (<c>awaiting_pull</c>).</summary>
+    AwaitingPull,
+
+    /// <summary>Queued behind an earlier message to a FIFO endpoint (<c>fifo_waiting</c>).</summary>
+    FifoWaiting,
+
+    /// <summary>
+    /// Waits, spending no attempts, while its endpoint's circuit breaker is open (<c>held</c>); see
+    /// <c>OutboundMessage.HoldExpiresAt</c>.
+    /// </summary>
+    Held,
+
+    /// <summary>In the dead-letter queue (<c>dlq</c>).</summary>
+    Dlq
+}
+
+/// <summary>
+/// The API's names for status filter values, e.g. <c>MessageStatus.AwaitingRetry</c> is
+/// <c>awaiting_retry</c>.
+/// </summary>
+public static class StatusWireNames
+{
+    /// <summary>The API's name for <paramref name="status"/>, e.g. <c>awaiting_retry</c>.</summary>
+    public static string ToWireName(this MessageStatus status) => WireNames.SnakeCase(status);
+
+    /// <summary>The API's name for <paramref name="status"/>, e.g. <c>failed_over</c>.</summary>
+    public static string ToWireName(this DeliveryStatus status) => WireNames.SnakeCase(status);
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

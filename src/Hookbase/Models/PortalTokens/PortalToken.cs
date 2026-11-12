@@ -1,4 +1,6 @@
 using Hookbase.Json;
+using Hookbase.Models.Common;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Hookbase.Models.PortalTokens;
@@ -26,6 +28,10 @@ public record PortalToken
     public int? UseCount { get; init; }
     public string? LastUsedAt { get; init; }
     public string? RevokedAt { get; init; }
+
+    /// <summary>Prints the members as a record does, with <see cref="Token"/> redacted.</summary>
+    protected virtual bool PrintMembers(StringBuilder builder) =>
+        SecretRedaction.PrintMembers(builder, this, typeof(PortalToken), false, nameof(Token));
 }
 
 /// <summary>
