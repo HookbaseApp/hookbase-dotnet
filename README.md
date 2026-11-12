@@ -119,6 +119,49 @@ WhatsApp sources also carry a Meta verify token (`CreateSourceRequest.VerifyToke
 after registration: read it with `GetPendingVerificationAsync`, paste it into Notion's verify
 form, then `AdoptPendingVerificationAsync`.
 
+### Working with Destinations and Deliveries
+
+A destination's `Type` is one of `Http` (the default), the queues `Sqs`, `EventBridge`,
+`ServiceBus`, `PubSub` and `OciQueue`, the storage types `S3`, `R2`, `Gcs` and `AzureBlob`, or
+`Bridge`. On the wire they are `http`, `sqs`, `eventbridge`, `servicebus`, `pubsub`, `oci_queue`,
+`s3`, `r2`, `gcs`, `azure_blob` and `bridge`.
+
+```csharp
+// HTTP destinations sign their deliveries. The secret comes back once, on create.
+var destination = await client.Destinations.CreateAsync(new CreateDestinationRequest
+{
+    Name = "Orders service",
+    Url = "https://orders.example.com/webhooks"
+});
+Console.WriteLine(destination.SigningSecret); // whsec_...
+
+var secret = await client.Destinations.RevealSecretAsync(destination.Id!);
+// The previous secret keeps signing alongside the new one for the grace period (default 3600 s).
+var rotated = await client.Destinations.RotateSecretAsync(destination.Id!, gracePeriodSeconds: 600);
+
+// A bridge publishes each delivery as an outbound event, to the endpoints subscribed to its type.
+var bridge = await client.Destinations.CreateAsync(new CreateDestinationRequest
+{
+    Name = "Stripe to customers",
+    Type = DestinationType.Bridge,
+    Config = BridgeConfig.FromField("type", eventTypePrefix: "stripe.")
+});
+
+// Testing a bridge is a dry run: it resolves the event type and counts subscribed endpoints.
+var dryRun = await client.Destinations.TestAsync(bridge.Id!,
+    JsonSerializer.SerializeToElement(new { type = "invoice.paid" }));
+Console.WriteLine($"{dryRun.EventType}: {dryRun.MatchingEndpoints} endpoints");
+
+// Replay a delivery with edits: a JSON Merge Patch of the stored payload, extra headers,
+// another destination or a transform override.
+var replay = await client.Deliveries.ReplayAsync("dlv_123", new ReplayDeliveryRequest
+{
+    PayloadPatch = JsonSerializer.SerializeToElement(new { customer = new { email = "fixed@example.com" } }),
+    HeadersOverride = new() { ["X-Replay-Reason"] = "corrected email" }
+});
+Console.WriteLine($"Queued {replay.DeliveryId}");
+```
+
 ### Auto-pagination with IAsyncEnumerable
 
 ```csharp
@@ -477,6 +520,37 @@ await foreach (var app in client.Applications.ListAllAsync())
 
 ## Advanced Usage
 
+### Upgrading to 5.2
+
+5.2 adds members and overloads only; code written against 5.1 compiles unchanged.
+
+- **Bridge destinations.** `DestinationType.Bridge` (`bridge`) was missing, so a bridge
+  destination read with a null `Type` and could not be created. Configure one with `BridgeConfig`
+  (`BridgeConfig.Fixed(eventType)` or `BridgeConfig.FromField(field, prefix)`) and read it back
+  with `Destination.GetBridgeConfig()`. `TestAsync(id, payload)` dry-runs a bridge
+  (`DryRun`, `EventType`, `EventTypeExists`, `MatchingEndpoints`), and `OutboundMessage.Bridge`
+  says which inbound event and delivery published a message.
+- **Destination signing secrets.** `Destination.HasSigningSecret`; `CreateAsync` returns
+  `SigningSecret` once for an HTTP destination; `RevealSecretAsync` and
+  `RotateSecretAsync(id, gracePeriodSeconds)` return a `DestinationSecret`.
+- **Holds while a circuit is open.** Deliveries and outbound messages can wait as `held`, spending
+  no attempts, until their target recovers. `DeliveryStatus` gains `AwaitingRetry` and `Held`, and
+  `MessageStatus` lists all ten outbound statuses (`MessageStatus.AwaitingRetry.ToWireName()` is
+  `awaiting_retry`, for the string `status` filters on messages). `Delivery` and `OutboundMessage`
+  read `HoldExpiresAt`; send results read `MessagesHeld` and the stats summary `Held`. Routes and
+  endpoints read `HoldOnCircuitOpen` (on by default) and, from `GetAsync`, `HeldCount` and
+  `HeldCountCapped`; set `HoldOnCircuitOpen` on their create and update requests to opt out.
+  `EventDebugInfo.GetDeliveries()` reads the debugger's deliveries as typed records.
+- **Replay with edits.** `Deliveries.ReplayAsync(id, ReplayDeliveryRequest)` replaces or
+  merge-patches the payload, overrides the destination, transform or headers, and returns the new
+  delivery's ID. `ReplayAsync(id)` is unchanged.
+- **Transform engines.** `Transforms.EnginesAsync()` lists the transform languages, whether each
+  is available, and their starter code.
+- **Sources.** `CatalogProvider` records the provider-catalog entry a source was made from (set it
+  on create). The API now returns `IpAllowlist`, `IpDenylist`, `EncryptFields` and `MaskFields` as
+  JSON arrays; it used to send JSON text, which failed to parse into these lists, and creating a
+  source with any of them set failed.
+
 ### Upgrading to 5.1
 
 - **Timeout with your own `HttpClient`.** The SDK no longer overwrites `HttpClient.Timeout`. The
@@ -498,8 +572,9 @@ await foreach (var app in client.Applications.ListAllAsync())
 - **`Messages` no longer needs the organization ID.** New overloads without it resolve the
   organization from the API key; the old ones still work.
 - **Destination types** are read and written under the API's names (`azure_blob`, `sqs`,
-  `eventbridge`, `servicebus`, `pubsub`, `oci_queue`). `AzureBlob` used to be sent as `azureBlob`,
-  and lists holding a queue destination failed to parse. An unknown type reads as `null`.
+  `eventbridge`, `servicebus`, `pubsub`, `oci_queue`; `bridge` from 5.2). `AzureBlob` used to be
+  sent as `azureBlob`, and lists holding a queue destination failed to parse. An unknown type reads
+  as `null`.
 - **Status filters** (`InboundEventStatus`, `DeliveryStatus`) gained the statuses the API uses
   (`Pending`, `Partial`, `Duplicate`, `NoRoutes`; `FailedOver`, `SchemaFailed`, `Throttled`) and
   are sent in snake_case. The members that matched nothing are marked `[Obsolete]`.
@@ -601,11 +676,11 @@ await client.Messages.SendAsync(new SendMessageRequest
 |----------|---------|
 | **Sources** | List (paged and `ListAllAsync`), get, create, update, delete, bulk delete, rotate and reveal secret, verify token get/rotate, pending verification get/adopt, export, import |
 | **Providers** | Public catalog: list, get, event types and sample payloads |
-| **Destinations** | List (paged and `ListAllAsync`), get, create, update, delete, bulk delete, test, export, import |
+| **Destinations** | List (paged and `ListAllAsync`), get, create, update, delete, bulk delete, test (with a payload: bridge dry run), reveal and rotate signing secret, export, import |
 | **Routes** | List, get, create, update, delete, bulk delete, bulk update, export, import, circuit breaker status/reset/config |
-| **Events** | List (`ListPageAsync`, `ListAllAsync`), get, debug |
-| **Deliveries** | List, get, replay |
-| **Transforms** | List, get, create, update, delete, test |
+| **Events** | List (`ListPageAsync`, `ListAllAsync`), get, debug (typed deliveries with `GetDeliveries()`) |
+| **Deliveries** | List, get, replay (as is, or with payload, destination, transform or header edits) |
+| **Transforms** | List, get, create, update, delete, test, engines |
 | **Filters** | List, get, create, update, delete, test |
 | **Schemas** | List, get, create, update, delete, validate |
 | **Tunnels** | List, get, create (returns the one-time auth token), bulk delete |
