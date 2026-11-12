@@ -89,3 +89,43 @@ public record TestTransformResult
 
     public string? Error { get; init; }
 }
+
+/// <summary>
+/// A transform language the API supports (<c>GET /api/transforms/engines</c>).
+/// </summary>
+public record TransformEngine
+{
+    /// <summary>The <c>TransformType</c> value, e.g. <c>jsonata</c>, <c>javascript</c>, <c>jq</c>.</summary>
+    public string? Type { get; init; }
+
+    /// <summary>Display name, e.g. <c>JSONata</c>.</summary>
+    public string? Label { get; init; }
+
+    public string? Description { get; init; }
+
+    /// <summary>File extension for the language's code, without the dot, e.g. <c>jsonata</c>.</summary>
+    public string? FileExtension { get; init; }
+
+    /// <summary>A minimal working transform to start from.</summary>
+    public string? StarterCode { get; init; }
+
+    /// <summary>Whether the dashboard's AI assistant can write code in this language.</summary>
+    public bool AiGenerate { get; init; }
+
+    /// <summary>
+    /// False when the language needs transform isolation and the deployment has it off; creating or
+    /// running a transform in it then fails with <c>TRANSFORM_ENGINE_UNAVAILABLE</c>.
+    /// </summary>
+    public bool Available { get; init; }
+}
+
+/// <summary>
+/// The transform languages and content formats the API supports (<c>GET /api/transforms/engines</c>).
+/// </summary>
+public record TransformEngines
+{
+    public List<TransformEngine> Engines { get; init; } = new();
+
+    /// <summary>Values for <c>InputFormat</c> and <c>OutputFormat</c>: <c>json</c>, <c>xml</c>, <c>text</c>.</summary>
+    public List<string> ContentFormats { get; init; } = new();
+}

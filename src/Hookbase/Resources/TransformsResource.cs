@@ -138,6 +138,20 @@ public class TransformsResource : BaseResource
         );
     }
 
+    /// <summary>
+    /// List the transform languages and content formats the API supports
+    /// (<c>GET /api/transforms/engines</c>), with whether each language is available on this
+    /// deployment and its starter code.
+    /// </summary>
+    public async Task<TransformEngines> EnginesAsync(CancellationToken cancellationToken = default)
+    {
+        return await ApiClient.RequestAsync<TransformEngines>(
+            HttpMethod.Get,
+            "/api/transforms/engines",
+            cancellationToken: cancellationToken
+        );
+    }
+
     // Internal response types
     private record ListTransformsResponse
     {

@@ -15,6 +15,12 @@ public record Source
     public string? Description { get; init; }
     public string? Provider { get; init; }
 
+    /// <summary>
+    /// The provider-catalog entry the source was made from (the <c>id</c> of
+    /// <c>GET /api/catalog/providers</c>), or null. Set on create only.
+    /// </summary>
+    public string? CatalogProvider { get; init; }
+
     [JsonConverter(typeof(BooleanConverter))]
     public bool IsActive { get; init; } = true;
 
@@ -169,6 +175,15 @@ public record CreateSourceRequest
     /// Restrict the ingest endpoint to these HTTP verbs. Null or empty accepts any method.
     /// </summary>
     public List<string>? AllowedMethods { get; init; }
+
+    /// <summary>
+    /// The provider-catalog entry (an <c>id</c> from <c>GET /api/catalog/providers</c>) the source
+    /// is made from, recorded on the source. Several catalog entries have no verifier of their own
+    /// and are created as a custom HMAC source; this records whose sender it is, so a bridge
+    /// destination does not treat the vendor's shared IP addresses as verifying the sender. An id
+    /// the catalog does not have is a 400. It cannot be changed after the source is created.
+    /// </summary>
+    public string? CatalogProvider { get; init; }
 }
 
 /// <summary>
